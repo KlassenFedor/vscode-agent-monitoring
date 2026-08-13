@@ -1,0 +1,7 @@
+{"type":"mode","mode":"normal","sessionId":"claude-session-2"}
+{"type":"future-record-type","payload":{"whatever":[1,2,3]},"timestamp":"2026-08-13T10:00:00.000Z"}
+{"type":"assistant","cwd":"__CWD__","sessionId":"claude-session-2","timestamp":"2026-08-13T10:00:01.000Z","message":{"role":"assistant","content":"a plain string where an array used to be"}}
+{"type":"assistant","cwd":"__CWD__","sessionId":"claude-session-2","timestamp":"2026-08-13T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text"},{"type":"tool_use","name":"Edit"},{"nonsense":true},null,42]}}
+{"type":"user","cwd":"__CWD__","sessionId":"claude-session-2","timestamp":"2026-08-13T10:00:03.000Z","message":null}
+{"type":"assistant","cwd":"__CWD__","sessionId":"claude-session-2","timestamp":"not-a-timestamp","message":{"role":"assistant","content":[{"type":"text","text":"still readable"}]}}
+{"type":"assistant","cwd":"__CWD__","sessionId":"claude-session-2","timestamp":"2026-08-13T10:00:04.000Z","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"__CWD__/src/kept.ts"}}]}}

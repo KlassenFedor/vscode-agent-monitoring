@@ -1,0 +1,2 @@
+{"timestamp":"2026-08-13T10:00:00.000Z","type":"session_meta","payload":{"session_id":"codex-session-elsewhere","id":"rollout-2","cwd":"/somewhere/else","originator":"codex-tui","git":{"branch":"main"}}}
+{"timestamp":"2026-08-13T10:00:02.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Работаю над совсем другим проектом.","phase":"final_answer"}}

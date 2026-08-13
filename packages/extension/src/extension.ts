@@ -7,6 +7,8 @@ import type { CommentKind } from '@agent-monitor/protocol';
 
 import { WorkspaceModel, type SessionView } from './core/model.js';
 import { planNotification, sessionLabel } from './core/notify.js';
+import { visiblePassive } from './core/passive/merge.js';
+import { PassiveTracker, type PassiveSessionView } from './core/passive/tracker.js';
 import { setupWorkspace } from './core/setup.js';
 import { SessionWatcher } from './core/watcher.js';
 import { SessionPanels } from './ui/panel.js';
@@ -22,7 +24,14 @@ export function activate(context: vscode.ExtensionContext): void {
   const model = new WorkspaceModel(root, {
     staleAfterMs: config.get<number>('staleAfterMs') ?? 600_000,
   });
-  const tree = new SessionTreeProvider(model);
+  let passive: PassiveSessionView[] = [];
+  const tracker = new PassiveTracker(root, {
+    homeDir: os.homedir(),
+    staleAfterMs: config.get<number>('staleAfterMs') ?? 600_000,
+    onDisabled: (reason) => void vscode.window.showWarningMessage(reason),
+  });
+
+  const tree = new SessionTreeProvider(model, () => passive);
   const panels = new SessionPanels(model);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'agentMonitor.openSession';
@@ -31,6 +40,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const refresh = async (): Promise<void> => {
     const snapshot = await model.refresh();
+    // Cheap when nothing has ever been written; switches itself off if the agents'
+    // transcript format moves out from under it.
+    passive = visiblePassive(snapshot.sessions, await tracker.refresh());
 
     for (const session of snapshot.sessions) {
       notify(planNotification(session, previous.get(session.id)), panels, model);
