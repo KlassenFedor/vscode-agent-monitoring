@@ -17,7 +17,9 @@ beforeAll(() => {
   // These tests exercise the published entry point, so they need the build output
   // rather than the sources the rest of the suite runs against.
   if (!existsSync(cli)) {
-    execFileSync('npx', ['tsc', '-b', 'packages/mcp-server'], { cwd: repoRoot, stdio: 'inherit' });
+    // npx is a shell script on POSIX and a .cmd on Windows; execFileSync needs the
+    // exact name because it does not go through a shell.
+    execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['tsc', '-b', 'packages/mcp-server'], { cwd: repoRoot, stdio: 'inherit' });
   }
 }, 120_000);
 

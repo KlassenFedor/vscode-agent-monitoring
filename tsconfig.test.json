@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node", "vscode"],
+    "lib": ["ES2022", "DOM"],
+    "baseUrl": ".",
+    // Resolve to sources, matching what vitest runs. Pointing at dist/ would let a
+    // stale build hide a type error the tests would then hit at runtime.
+    "paths": {
+      "@agent-monitor/protocol": ["./packages/protocol/src/index.ts"],
+      "@agent-monitor/testkit": ["./packages/testkit/src/index.ts"],
+      "@agent-monitor/mcp-server": ["./packages/mcp-server/src/index.ts"],
+      "@agent-monitor/hook": ["./packages/hook/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/test/**/*.ts", "vitest.config.ts"]
+}

@@ -118,3 +118,67 @@ describe('withFileLock', () => {
     ).resolves.toBe('recovered');
   });
 });
+
+describe('a lock left behind by a crash', () => {
+  it('PROTO-47: is taken over at once when its holder is gone', async () => {
+    const lock = path.join(await makeRoot(), 'x.lock');
+
+    // A process that existed and then died, exactly like an agent under SIGKILL.
+    const victim = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
+    await new Promise((resolve) => victim.once('spawn', resolve));
+    const deadPid = victim.pid as number;
+    victim.kill('SIGKILL');
+    await new Promise((resolve) => victim.once('exit', resolve));
+
+    await fs.writeFile(lock, `${deadPid} ${new Date().toISOString()}\n`, 'utf8');
+
+    const started = Date.now();
+    // Waiting out the staleness timeout would stall the next writer for half a minute.
+    await expect(
+      withFileLock(lock, () => 'recovered', { timeoutMs: 2_000, staleMs: 60_000 }),
+    ).resolves.toBe('recovered');
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('PROTO-47: waits for a holder that is still alive', async () => {
+    const lock = path.join(await makeRoot(), 'x.lock');
+    await fs.writeFile(lock, `${process.pid} ${new Date().toISOString()}\n`, 'utf8');
+
+    await expect(
+      withFileLock(lock, () => 'unreachable', { timeoutMs: 100, retryMs: 5, staleMs: 60_000 }),
+    ).rejects.toThrow(LockTimeoutError);
+  });
+
+  it('PROTO-48: takes over an empty lock file left by a kill between two syscalls', async () => {
+    const lock = path.join(await makeRoot(), 'x.lock');
+    // Creating the lock and naming its owner are two syscalls. A process killed
+    // between them leaves this, and honouring it would stall the next writer.
+    await fs.writeFile(lock, '', 'utf8');
+    const justOld = new Date(Date.now() - 2_000);
+    await fs.utimes(lock, justOld, justOld);
+
+    await expect(
+      withFileLock(lock, () => 'recovered', { timeoutMs: 2_000, staleMs: 60_000 }),
+    ).resolves.toBe('recovered');
+  });
+
+  it('PROTO-48: still respects a lock that was created a moment ago', async () => {
+    const lock = path.join(await makeRoot(), 'x.lock');
+    await fs.writeFile(lock, '', 'utf8');
+
+    await expect(
+      withFileLock(lock, () => 'unreachable', { timeoutMs: 100, retryMs: 5, staleMs: 60_000 }),
+    ).rejects.toThrow(LockTimeoutError);
+  });
+
+  it('PROTO-47: falls back to the staleness timeout when there is no usable pid', async () => {
+    const lock = path.join(await makeRoot(), 'x.lock');
+    await fs.writeFile(lock, 'written by something else\n', 'utf8');
+    const old = new Date(Date.now() - 60_000);
+    await fs.utimes(lock, old, old);
+
+    await expect(
+      withFileLock(lock, () => 'recovered', { timeoutMs: 500, retryMs: 5, staleMs: 1_000 }),
+    ).resolves.toBe('recovered');
+  });
+});

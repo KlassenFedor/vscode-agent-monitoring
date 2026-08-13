@@ -1,3 +1,5 @@
+export { bestOf } from './timing.js';
+
 export { makeWorkspace } from './workspace.js';
 export type { TempWorkspace } from './workspace.js';
 

@@ -1,0 +1,7 @@
+{
+  "name": "@agent-monitor/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scenario tests that drive several packages at once: agent, human and extension together."
+}

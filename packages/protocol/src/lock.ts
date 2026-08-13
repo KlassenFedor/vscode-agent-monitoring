@@ -15,6 +15,9 @@ export interface LockOptions {
 
 const DEFAULTS = { timeoutMs: 5_000, staleMs: 30_000, retryMs: 8 } as const;
 
+/** How long a lock file with no pid in it is given the benefit of the doubt. */
+const NAMELESS_GRACE_MS = 500;
+
 /**
  * Tail of the in-process queue for each lock path.
  *
@@ -92,15 +95,62 @@ async function acquire(
       }
       if (!isErrno(error, 'EEXIST')) throw error;
 
+      // A killed agent leaves its lock behind. Waiting out the staleness timeout
+      // would stall the next writer — the restarted agent, or the human's comment —
+      // for half a minute, so the holder is checked for a pulse first.
+      if (await holderIsGone(lockPath)) {
+        await removeIfExists(lockPath);
+        continue;
+      }
+
       const held = await statOrNull(lockPath);
       if (held && Date.now() - held.mtimeMs > ctx.staleMs) {
-        // The holder is gone (crashed, killed). Break the lock and retry; if another
-        // waiter breaks it first, our next `open` simply loses the race and retries.
+        // Fallback for a lock whose holder cannot be identified: written by another
+        // machine, or by a version that did not record a pid.
         await removeIfExists(lockPath);
         continue;
       }
       if (Date.now() >= ctx.deadline) throw new LockTimeoutError(lockPath, ctx.timeoutMs);
       await sleep(ctx.retryMs + Math.floor(Math.random() * ctx.retryMs));
     }
+  }
+}
+
+/**
+ * Is the process that took this lock still running?
+ *
+ * Answers false only when the lock names a process that is definitely gone. Anything
+ * unclear — an unreadable lock file, a pid from another machine, a process owned by
+ * another user — answers true, leaving the staleness timeout as the safety net.
+ *
+ * Assumes lock holders are local, which they are: the extension host, the MCP server
+ * and the hook all run on the machine that holds the files.
+ */
+async function holderIsGone(lockPath: string): Promise<boolean> {
+  let contents: string;
+  let stats: Awaited<ReturnType<typeof statOrNull>>;
+  try {
+    contents = await fs.readFile(lockPath, 'utf8');
+    stats = await statOrNull(lockPath);
+  } catch {
+    return false;
+  }
+
+  const pid = Number.parseInt(contents.trim().split(/\s+/)[0] ?? '', 10);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    // The lock names nobody. Creating the file and writing the pid into it are two
+    // syscalls, and a process killed between them leaves exactly this: an empty lock
+    // that would otherwise be honoured until the staleness timeout. That gap is
+    // microseconds wide, so anything still nameless after the grace period is debris.
+    return stats !== null && Date.now() - stats.mtimeMs > NAMELESS_GRACE_MS;
+  }
+  if (pid === process.pid) return false;
+
+  try {
+    // Signal 0 performs the permission and existence checks without delivering it.
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return isErrno(error, 'ESRCH');
   }
 }
