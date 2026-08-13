@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+.vscode-test/
+*.vsix
+.agent-monitor/
+.venv/
+
+# Local-only notes and scratch documents (see README.md)
+docs-local/

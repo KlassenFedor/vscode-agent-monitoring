@@ -1,0 +1,21 @@
+{
+  "name": "@agent-monitor/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "On-disk session protocol shared by the MCP server, the hook CLI and the VS Code extension.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

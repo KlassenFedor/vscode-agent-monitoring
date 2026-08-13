@@ -1,0 +1,28 @@
+{
+  "name": "agent-monitor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.10"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:proto": "vitest run packages/protocol"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "fast-check": "^3.19.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
