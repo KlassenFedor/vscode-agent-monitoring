@@ -95,7 +95,8 @@ export async function stop(io: HookIo): Promise<HookResult> {
  * honest; feedback there travels over the MCP tools instead (DESIGN.md §4.2).
  */
 export async function notify(io: HookIo): Promise<HookResult> {
-  const raw = io.argv[0] ?? io.stdin;
+  // Flags are ownership markers written by the setup command, never payload.
+  const raw = io.argv.find((argument) => !argument.startsWith('--')) ?? io.stdin;
   const payload = parsePayload(raw ?? '');
   const context = await resolveExistingSession(io, payload);
   if (!context.store) return SILENT;

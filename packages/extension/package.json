@@ -1,0 +1,98 @@
+{
+  "name": "agent-monitor",
+  "displayName": "Agent Monitor",
+  "description": "Watch long-running AI coding sessions while they run, and comment without interrupting them.",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "publisher": "agent-monitor",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20.10"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "build": "tsc -b && node scripts/bundle.mjs",
+    "bundle": "node scripts/bundle.mjs"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agentMonitor",
+          "title": "Agent Monitor",
+          "icon": "resources/pulse.svg"
+        }
+      ]
+    },
+    "views": {
+      "agentMonitor": [
+        {
+          "id": "agentMonitor.sessions",
+          "name": "Sessions"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "agentMonitor.openSession",
+        "title": "Agent Monitor: Open Session Panel"
+      },
+      {
+        "command": "agentMonitor.setupWorkspace",
+        "title": "Agent Monitor: Set Up Workspace"
+      },
+      {
+        "command": "agentMonitor.comment",
+        "title": "Agent Monitor: Comment on the Running Session"
+      },
+      {
+        "command": "agentMonitor.refresh",
+        "title": "Agent Monitor: Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentMonitor.refresh",
+          "when": "view == agentMonitor.sessions",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Agent Monitor",
+      "properties": {
+        "agentMonitor.pollIntervalMs": {
+          "type": "number",
+          "default": 1000,
+          "description": "How often to re-read the session files when the file watcher misses a change."
+        },
+        "agentMonitor.staleAfterMs": {
+          "type": "number",
+          "default": 600000,
+          "description": "A session with no activity for this long is shown as stale."
+        },
+        "agentMonitor.notifyOnQuestion": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when an agent asks a question and is waiting for you."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@agent-monitor/protocol": "0.0.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.23.0"
+  }
+}

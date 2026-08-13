@@ -1,0 +1,170 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+import * as vscode from 'vscode';
+
+import type { CommentKind } from '@agent-monitor/protocol';
+
+import { WorkspaceModel, type SessionView } from './core/model.js';
+import { planNotification, sessionLabel } from './core/notify.js';
+import { setupWorkspace } from './core/setup.js';
+import { SessionWatcher } from './core/watcher.js';
+import { SessionPanels } from './ui/panel.js';
+import { SessionTreeProvider } from './ui/tree.js';
+
+export function activate(context: vscode.ExtensionContext): void {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) return;
+
+  const root = folder.uri.fsPath;
+  const config = vscode.workspace.getConfiguration('agentMonitor');
+
+  const model = new WorkspaceModel(root, {
+    staleAfterMs: config.get<number>('staleAfterMs') ?? 600_000,
+  });
+  const tree = new SessionTreeProvider(model);
+  const panels = new SessionPanels(model);
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+  status.command = 'agentMonitor.openSession';
+
+  let previous = new Map<string, SessionView>();
+
+  const refresh = async (): Promise<void> => {
+    const snapshot = await model.refresh();
+
+    for (const session of snapshot.sessions) {
+      notify(planNotification(session, previous.get(session.id)), panels, model);
+    }
+    previous = new Map(snapshot.sessions.map((session) => [session.id, session]));
+
+    tree.refresh();
+    panels.renderAll();
+    updateStatus(status, snapshot.sessions);
+  };
+
+  const watcher = new SessionWatcher(root, () => void refresh(), {
+    pollIntervalMs: config.get<number>('pollIntervalMs') ?? 1_000,
+  });
+
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider('agentMonitor.sessions', tree),
+    status,
+    { dispose: () => watcher.stop() },
+    { dispose: () => panels.dispose() },
+    vscode.commands.registerCommand('agentMonitor.refresh', () => void refresh()),
+    vscode.commands.registerCommand('agentMonitor.openSession', (sessionId?: string) => {
+      const id = sessionId ?? model.snapshot().sessions[0]?.id;
+      if (id) panels.show(id);
+    }),
+    vscode.commands.registerCommand('agentMonitor.comment', () => void promptForComment(model)),
+    vscode.commands.registerCommand('agentMonitor.setupWorkspace', () => void runSetup(context, root)),
+  );
+
+  void watcher.start();
+  void refresh();
+}
+
+export function deactivate(): void {
+  // Everything is disposed through context.subscriptions.
+}
+
+function updateStatus(status: vscode.StatusBarItem, sessions: readonly SessionView[]): void {
+  const live = sessions.filter((session) => session.status !== 'done');
+  if (live.length === 0) {
+    status.hide();
+    return;
+  }
+
+  const waiting = live.filter((session) => session.waitingQuestion).length;
+  const unread = live.reduce((total, session) => total + session.unread.length, 0);
+
+  const parts = [`${live.length} agent${live.length === 1 ? '' : 's'}`];
+  if (waiting > 0) parts.push(`${waiting} waiting`);
+  if (unread > 0) parts.push(`${unread} undelivered`);
+
+  status.text = `$(pulse) ${parts.join(' · ')}`;
+  status.tooltip = live.map((session) => `${sessionLabel(session)} — ${session.status}`).join('\n');
+  status.show();
+}
+
+function notify(
+  plan: ReturnType<typeof planNotification>,
+  panels: SessionPanels,
+  model: WorkspaceModel,
+): void {
+  if (plan.level === 'none') return;
+
+  const open = 'Open session';
+  const actions = [...plan.actions, open];
+  const show = plan.level === 'error' ? vscode.window.showErrorMessage : vscode.window.showInformationMessage;
+
+  void show(plan.message, ...actions).then(async (choice) => {
+    if (choice === undefined) return;
+    if (choice !== open && plan.actions.includes(choice)) {
+      // Answering straight from the notification is the whole point of offering the
+      // agent's options here: the agent is blocked until one of them arrives.
+      await model.postComment(plan.sessionId, {
+        text: choice,
+        kind: 'answer',
+        ...(plan.event ? { replyTo: plan.event.seq } : {}),
+      });
+      return;
+    }
+    panels.show(plan.sessionId);
+  });
+}
+
+async function promptForComment(model: WorkspaceModel): Promise<void> {
+  const sessions = model.snapshot().sessions.filter((session) => session.status !== 'done');
+  if (sessions.length === 0) {
+    void vscode.window.showInformationMessage('Agent Monitor: no running sessions in this workspace.');
+    return;
+  }
+
+  let target = sessions[0];
+  if (sessions.length > 1) {
+    const picked = await vscode.window.showQuickPick(sessions.map(sessionLabel), {
+      title: 'Comment on which session?',
+    });
+    if (!picked) return;
+    target = sessions.find((session) => sessionLabel(session) === picked);
+  }
+  if (!target) return;
+
+  const kind = await vscode.window.showQuickPick(
+    [
+      { label: 'steer', detail: 'Change the plan. The agent must apply it from its next step.' },
+      { label: 'fyi', detail: 'Context only.' },
+      { label: 'stop', detail: 'Stop and wait for me.' },
+    ],
+    { title: 'Kind of comment' },
+  );
+  if (!kind) return;
+
+  const text = await vscode.window.showInputBox({ title: 'Comment', placeHolder: 'e.g. do not touch legacy/' });
+  if (!text) return;
+
+  await model.postComment(target.id, { text, kind: kind.label as CommentKind });
+}
+
+async function runSetup(context: vscode.ExtensionContext, root: string): Promise<void> {
+  const dist = path.join(context.extensionPath, 'dist');
+  const report = await setupWorkspace({
+    root,
+    node: process.execPath,
+    mcpServer: path.join(dist, 'mcp-server.cjs'),
+    hook: path.join(dist, 'hook.cjs'),
+    codexConfig: path.join(os.homedir(), '.codex', 'config.toml'),
+  });
+
+  const summary =
+    report.changed.length === 0
+      ? 'Agent Monitor: already set up, nothing to change.'
+      : `Agent Monitor: updated ${report.changed.length} file(s).`;
+
+  if (report.notes.length > 0) {
+    void vscode.window.showWarningMessage(`${summary} ${report.notes.join(' ')}`);
+  } else {
+    void vscode.window.showInformationMessage(summary);
+  }
+}

@@ -1,0 +1,239 @@
+import { promises as fs } from 'node:fs';
+import * as path from 'node:path';
+
+import { makeWorkspace } from '@agent-monitor/testkit';
+import { describe, expect, it } from 'vitest';
+
+import {
+  MARKER_END,
+  MARKER_START,
+  replaceTomlBlock,
+  setupWorkspace,
+  writeMarkerBlock,
+  type SetupPaths,
+} from '../src/core/setup.js';
+import { trackTemp } from './helpers.js';
+
+async function makeSetup(overrides: Partial<SetupPaths> = {}): Promise<SetupPaths> {
+  const workspace = await makeWorkspace('agent-monitor-setup-');
+  trackTemp(workspace.cleanup);
+
+  return {
+    root: workspace.root,
+    node: '/usr/bin/node',
+    mcpServer: '/ext/dist/mcp-server.cjs',
+    hook: '/ext/dist/hook.cjs',
+    codexConfig: path.join(workspace.root, 'codex-config.toml'),
+    ...overrides,
+  };
+}
+
+async function read(file: string): Promise<string> {
+  return fs.readFile(file, 'utf8');
+}
+
+async function readJson(file: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await read(file)) as Record<string, unknown>;
+}
+
+describe('setupWorkspace', () => {
+  it('writes every configuration the agents need', async () => {
+    const paths = await makeSetup();
+
+    const report = await setupWorkspace(paths);
+
+    expect(report.notes).toEqual([]);
+    const mcp = await readJson(path.join(paths.root, '.mcp.json'));
+    expect(mcp.mcpServers).toMatchObject({
+      'agent-monitor': { command: '/usr/bin/node', args: ['/ext/dist/mcp-server.cjs'] },
+    });
+
+    const settings = await readJson(path.join(paths.root, '.claude', 'settings.json'));
+    expect(JSON.stringify(settings.hooks)).toContain('/ext/dist/hook.cjs post-tool --agent-monitor');
+
+    expect(await read(path.join(paths.root, 'CLAUDE.md'))).toContain('report_progress');
+    expect(await read(paths.codexConfig as string)).toContain('[mcp_servers.agent-monitor]');
+    expect(await read(path.join(paths.root, '.gitignore'))).toContain('.agent-monitor/');
+  });
+
+  it('EXT-08: running it twice changes nothing the second time', async () => {
+    const paths = await makeSetup();
+    await setupWorkspace(paths);
+
+    const before = await snapshotFiles(paths);
+    const report = await setupWorkspace(paths);
+    const after = await snapshotFiles(paths);
+
+    expect(after).toEqual(before);
+    expect(report.changed).toEqual([]);
+  });
+
+  it('EXT-08: repoints the hook after an extension upgrade instead of adding a second copy', async () => {
+    const paths = await makeSetup();
+    await setupWorkspace(paths);
+
+    await setupWorkspace({ ...paths, hook: '/ext-2/dist/hook.cjs', mcpServer: '/ext-2/dist/mcp-server.cjs' });
+
+    const settings = await readJson(path.join(paths.root, '.claude', 'settings.json'));
+    const serialised = JSON.stringify(settings.hooks);
+    expect(serialised).toContain('/ext-2/dist/hook.cjs post-tool --agent-monitor');
+    expect(serialised).not.toContain('/ext/dist/hook.cjs');
+  });
+
+  it('EXT-09: leaves the rest of an existing configuration alone', async () => {
+    const paths = await makeSetup();
+    await fs.mkdir(path.join(paths.root, '.claude'), { recursive: true });
+    await fs.writeFile(
+      path.join(paths.root, '.claude', 'settings.json'),
+      JSON.stringify(
+        {
+          model: 'opus',
+          hooks: {
+            PostToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'my-own-linter' }] }],
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    await fs.writeFile(
+      path.join(paths.root, '.mcp.json'),
+      JSON.stringify({ mcpServers: { other: { command: 'other-server' } } }, null, 2),
+      'utf8',
+    );
+
+    await setupWorkspace(paths);
+
+    const settings = await readJson(path.join(paths.root, '.claude', 'settings.json'));
+    expect(settings.model).toBe('opus');
+    expect(JSON.stringify(settings.hooks)).toContain('my-own-linter');
+
+    const mcp = await readJson(path.join(paths.root, '.mcp.json'));
+    expect((mcp.mcpServers as Record<string, unknown>).other).toEqual({ command: 'other-server' });
+  });
+
+  it('EXT-09: backs the Codex config up before touching it, and keeps the rest', async () => {
+    const paths = await makeSetup();
+    const codex = paths.codexConfig as string;
+    const original = 'model = "gpt-5.6-sol"\n\n[projects."/work"]\ntrust_level = "trusted"\n';
+    await fs.writeFile(codex, original, 'utf8');
+
+    await setupWorkspace(paths);
+
+    const updated = await read(codex);
+    expect(updated).toContain('model = "gpt-5.6-sol"');
+    expect(updated).toContain('trust_level = "trusted"');
+    expect(updated).toContain('[mcp_servers.agent-monitor]');
+    expect(await read(`${codex}.agent-monitor.bak`)).toBe(original);
+  });
+
+  it('EXT-09: reports a broken config instead of overwriting it', async () => {
+    const paths = await makeSetup();
+    await fs.mkdir(path.join(paths.root, '.claude'), { recursive: true });
+    const broken = '{ "hooks": ';
+    await fs.writeFile(path.join(paths.root, '.claude', 'settings.json'), broken, 'utf8');
+
+    const report = await setupWorkspace(paths);
+
+    expect(report.notes.join(' ')).toContain('not valid JSON');
+    expect(await read(path.join(paths.root, '.claude', 'settings.json'))).toBe(broken);
+  });
+
+  it('EXT-11: adds the ignore entry exactly once', async () => {
+    const paths = await makeSetup();
+    await fs.writeFile(path.join(paths.root, '.gitignore'), 'node_modules/\n', 'utf8');
+
+    await setupWorkspace(paths);
+    await setupWorkspace(paths);
+
+    const gitignore = await read(path.join(paths.root, '.gitignore'));
+    expect(gitignore.split('\n').filter((line) => line.trim() === '.agent-monitor/')).toHaveLength(1);
+    expect(gitignore).toContain('node_modules/');
+  });
+
+  it('skips the Codex config when no path is available', async () => {
+    const paths = await makeSetup();
+    const report = await setupWorkspace({ ...paths, codexConfig: undefined });
+
+    expect(report.notes.join(' ')).toContain('Codex config was not touched');
+  });
+});
+
+describe('EXT-10: instruction blocks in CLAUDE.md and AGENTS.md', () => {
+  it('appends a bounded block to a file the human already owns', async () => {
+    const paths = await makeSetup();
+    const file = path.join(paths.root, 'CLAUDE.md');
+    await fs.writeFile(file, '# My project\n\nBuild with `npm run build`.\n', 'utf8');
+
+    await setupWorkspace(paths);
+
+    const content = await read(file);
+    expect(content).toContain('# My project');
+    expect(content).toContain('Build with `npm run build`.');
+    expect(content.indexOf(MARKER_START)).toBeGreaterThan(content.indexOf('# My project'));
+  });
+
+  it('rewrites only what is between the markers', async () => {
+    const paths = await makeSetup();
+    const file = path.join(paths.root, 'CLAUDE.md');
+    await fs.writeFile(
+      file,
+      `# Before\n\n${MARKER_START}\nold instructions\n${MARKER_END}\n\n# After\n`,
+      'utf8',
+    );
+
+    await writeMarkerBlock(file, 'new instructions');
+
+    const content = await read(file);
+    expect(content).toContain('# Before');
+    expect(content).toContain('# After');
+    expect(content).toContain('new instructions');
+    expect(content).not.toContain('old instructions');
+  });
+
+  it('is a no-op when the block is already current', async () => {
+    const file = path.join((await makeSetup()).root, 'AGENTS.md');
+    await writeMarkerBlock(file, 'same body');
+
+    expect(await writeMarkerBlock(file, 'same body')).toBe(false);
+  });
+});
+
+describe('replaceTomlBlock', () => {
+  it('appends the table when the file does not have it', () => {
+    expect(replaceTomlBlock('model = "x"\n', '[a.b]', '[a.b]\nkey = 1')).toBe(
+      'model = "x"\n\n[a.b]\nkey = 1\n',
+    );
+  });
+
+  it('replaces the table in place, leaving the tables around it', () => {
+    const source = '[first]\nx = 1\n\n[a.b]\nold = true\n\n[last]\ny = 2\n';
+
+    const result = replaceTomlBlock(source, '[a.b]', '[a.b]\nnew = true');
+
+    expect(result).toContain('[first]\nx = 1');
+    expect(result).toContain('[a.b]\nnew = true');
+    expect(result).toContain('[last]\ny = 2');
+    expect(result).not.toContain('old = true');
+  });
+
+  it('handles a table that runs to the end of the file', () => {
+    const result = replaceTomlBlock('[a.b]\nold = 1\n', '[a.b]', '[a.b]\nnew = 1');
+    expect(result.trim()).toBe('[a.b]\nnew = 1');
+  });
+});
+
+async function snapshotFiles(paths: SetupPaths): Promise<Record<string, string>> {
+  const files = [
+    path.join(paths.root, '.mcp.json'),
+    path.join(paths.root, '.claude', 'settings.json'),
+    path.join(paths.root, 'CLAUDE.md'),
+    path.join(paths.root, 'AGENTS.md'),
+    path.join(paths.root, '.gitignore'),
+    paths.codexConfig as string,
+  ];
+
+  const entries = await Promise.all(files.map(async (file) => [file, await read(file)] as const));
+  return Object.fromEntries(entries);
+}

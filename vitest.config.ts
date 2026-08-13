@@ -13,6 +13,7 @@ export default defineConfig({
       '@agent-monitor/protocol': src('protocol'),
       '@agent-monitor/testkit': src('testkit'),
       '@agent-monitor/mcp-server': src('mcp-server'),
+      '@agent-monitor/hook': src('hook'),
     },
   },
   test: {
