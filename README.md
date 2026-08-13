@@ -11,8 +11,10 @@ Status: early development. The protocol layer is the only package with a stable 
 | Path | What |
 |---|---|
 | `packages/protocol` | Session file format: schemas, atomic JSONL append, incremental readers. Zero runtime dependencies. |
-| `docs/` | Versioned documentation. `DESIGN.md` (architecture) and `TESTS.md` (test registry) are the specs development follows. |
-| `docs-local/` | Git-ignored scratch space: personal notes, throwaway analysis, captured logs. Never referenced from code or versioned docs. |
+| `packages/mcp-server` | The stdio MCP server the agents call to publish progress and read feedback. |
+| `packages/testkit` | Scripted stand-ins for the agent and the human, so tests need no language model. |
+| `docs/` | Versioned documentation for users of the extension. |
+| `docs-local/` | Git-ignored: architecture and test specs (`DESIGN.md`, `TESTS.md`), personal notes, captured logs. |
 
 ## Conventions
 

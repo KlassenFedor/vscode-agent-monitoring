@@ -3,7 +3,7 @@
  *
  * Runs the real appender in a separate process, which is the only way to exercise
  * the cross-process lock: an in-process test would be served by the promise queue
- * alone and prove nothing about the lock file (docs/TESTS.md PROTO-30).
+ * alone and prove nothing about the lock file (TESTS.md PROTO-30).
  */
 import { JsonlAppender } from '../../src/jsonl.js';
 

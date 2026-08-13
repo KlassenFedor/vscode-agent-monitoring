@@ -1,0 +1,28 @@
+{
+  "name": "@agent-monitor/mcp-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "stdio MCP server the agents call to publish progress and read human feedback.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "agent-monitor-mcp": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@agent-monitor/protocol": "0.0.0",
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  }
+}

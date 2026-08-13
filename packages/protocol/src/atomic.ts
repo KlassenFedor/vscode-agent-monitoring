@@ -7,7 +7,7 @@ import { ensureDir, isErrno, removeIfExists, sleep } from './fsutil.js';
 
 /**
  * Write JSON so that every concurrent reader sees either the previous content or the
- * new content, never a half-written file (docs/TESTS.md PROTO-04).
+ * new content, never a half-written file (TESTS.md PROTO-04).
  *
  * Write to a temporary file in the same directory, flush it, then rename over the
  * target: rename is atomic within a filesystem, which is why the temporary file must

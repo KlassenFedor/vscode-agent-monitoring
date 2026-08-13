@@ -116,7 +116,7 @@ export function assertArtifactName(value: string): string {
  *
  * The name check above already makes escape impossible; this is the second lock on
  * the door, so a future relaxation of the character rules cannot silently turn into
- * a path traversal (docs/TESTS.md SEC-04).
+ * a path traversal (TESTS.md SEC-04).
  */
 export function resolveArtifactPath(root: string, sessionId: string, name: string): string {
   const dir = artifactsDir(root, sessionId);
@@ -151,7 +151,7 @@ export function artifactFileName(seq: number, name: string): string {
 
 /**
  * Pick a name that is not taken yet: `report.md` -> `report-2.md` -> `report-3.md`.
- * Publishing an artifact must never overwrite an earlier one (docs/TESTS.md MCP-07).
+ * Publishing an artifact must never overwrite an earlier one (TESTS.md MCP-07).
  */
 export function uniqueArtifactName(taken: Iterable<string>, name: string): string {
   const existing = new Set(taken);

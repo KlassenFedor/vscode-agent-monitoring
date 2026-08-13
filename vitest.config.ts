@@ -1,6 +1,20 @@
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'vitest/config';
 
+const src = (pkg: string): string =>
+  fileURLToPath(new URL(`./packages/${pkg}/src/index.ts`, import.meta.url));
+
 export default defineConfig({
+  // Tests run against the TypeScript sources, not the build output, so a red test
+  // always points at the code that was just edited rather than a stale dist/.
+  resolve: {
+    alias: {
+      '@agent-monitor/protocol': src('protocol'),
+      '@agent-monitor/testkit': src('testkit'),
+      '@agent-monitor/mcp-server': src('mcp-server'),
+    },
+  },
   test: {
     include: ['packages/*/test/**/*.test.ts'],
     // Каждый тест владеет своим tmpdir (TESTS.md §1.3), поэтому файлы можно

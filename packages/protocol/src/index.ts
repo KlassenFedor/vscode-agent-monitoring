@@ -2,7 +2,7 @@
  * On-disk protocol for Agent Monitor sessions.
  *
  * Everything that reads or writes `.agent-monitor/` goes through this package, so
- * the layout described in docs/DESIGN.md §2 has exactly one implementation.
+ * the layout described in DESIGN.md §2 has exactly one implementation.
  */
 export {
   CorruptFileError,

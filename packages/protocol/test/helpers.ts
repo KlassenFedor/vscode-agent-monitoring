@@ -10,7 +10,7 @@ const created: string[] = [];
  * Fresh temporary workspace root, removed after the test file finishes.
  *
  * Every test owns its own directory so the whole suite can run in parallel
- * (docs/TESTS.md §1.3).
+ * (TESTS.md §1.3).
  */
 export async function makeRoot(prefix = 'agent-monitor-'): Promise<string> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));

@@ -33,7 +33,7 @@ export interface JsonlChunk<T> {
  * Read the records appended after `offset`.
  *
  * Only whole lines are consumed: a trailing fragment (a writer killed mid-append,
- * docs/TESTS.md PROTO-11) is left unread, and `nextOffset` stops in front of it. The
+ * TESTS.md PROTO-11) is left unread, and `nextOffset` stops in front of it. The
  * next append heals the file by starting on a fresh line, at which point the
  * fragment becomes a complete but unparsable line and is reported as skipped.
  */
@@ -99,7 +99,7 @@ export interface JsonlAppenderOptions {
  *
  * The line count is tracked incrementally: only the bytes appended since the last
  * append are re-read, so a session with hundreds of events does not degrade into
- * re-reading the whole file on every write (docs/TESTS.md PROTO-03).
+ * re-reading the whole file on every write (TESTS.md PROTO-03).
  */
 export class JsonlAppender {
   readonly filePath: string;

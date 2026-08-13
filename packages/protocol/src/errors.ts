@@ -29,7 +29,7 @@ export class ValidationError extends ProtocolError {
  * A single JSONL line exceeded the size limit.
  *
  * Large payloads belong in `artifacts/`, referenced from the event by path. See
- * {@link ../../../docs/DESIGN.md} §2 for why the line size is capped.
+ * DESIGN.md §2 for why the line size is capped.
  */
 export class RecordTooLargeError extends ProtocolError {
   readonly bytes: number;

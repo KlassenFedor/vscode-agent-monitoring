@@ -2,7 +2,7 @@
  * Time source.
  *
  * Injected everywhere a timestamp is produced so tests can assert on exact `ts`
- * values instead of sleeping (docs/TESTS.md §1.4).
+ * values instead of sleeping (TESTS.md §1.4).
  */
 export interface Clock {
   /** Milliseconds since the epoch. */

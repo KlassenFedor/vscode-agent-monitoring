@@ -61,7 +61,7 @@ export interface WrittenArtifact {
  *
  * This is the whole public surface of the file bus: the MCP server, the hook CLI and
  * the extension all go through it, so the on-disk layout stays an implementation
- * detail of this package (docs/DESIGN.md §2).
+ * detail of this package (DESIGN.md §2).
  */
 export class SessionStore {
   readonly root: string;
@@ -180,7 +180,7 @@ export class SessionStore {
    * Record that comments up to `seq` reached the agent.
    *
    * Deliberately separate from reading: the cursor may only advance once delivery
-   * actually happened, or feedback is lost without a trace (docs/TESTS.md HOOK-06).
+   * actually happened, or feedback is lost without a trace (TESTS.md HOOK-06).
    */
   async commitCursor(seq: number, extra: Partial<Cursor> = {}): Promise<Cursor> {
     const file = cursorPath(this.root, this.sessionId);
@@ -201,7 +201,7 @@ export class SessionStore {
    * Store an artifact and return the reference to put in an event.
    *
    * Never overwrites: a colliding name gets a numeric suffix, because an artifact is
-   * a record of what the agent produced at a point in time (docs/TESTS.md MCP-07).
+   * a record of what the agent produced at a point in time (TESTS.md MCP-07).
    */
   async writeArtifact(name: string, content: string | Uint8Array): Promise<WrittenArtifact> {
     const dir = artifactsDir(this.root, this.sessionId);
@@ -241,7 +241,7 @@ export class SessionStore {
  * Put records in a stable, chronological order and drop duplicate sequence numbers.
  *
  * A duplicate `seq` means two writers raced outside the lock; `ts` decides who came
- * first and the later copy is dropped (docs/TESTS.md PROTO-12).
+ * first and the later copy is dropped (TESTS.md PROTO-12).
  */
 export function normalizeRecords<T extends { seq: number; ts: string }>(records: readonly T[]): T[] {
   const sorted = [...records].sort((a, b) => (a.ts === b.ts ? a.seq - b.seq : a.ts < b.ts ? -1 : 1));

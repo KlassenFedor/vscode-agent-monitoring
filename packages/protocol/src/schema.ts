@@ -18,7 +18,7 @@ export type AgentKind = (typeof AGENT_KINDS)[number];
  *
  * A newer writer may add fields an older reader knows nothing about; those fields
  * survive a read/write round trip untouched instead of being silently dropped
- * (docs/TESTS.md PROTO-05).
+ * (TESTS.md PROTO-05).
  */
 export interface OpenRecord {
   [key: string]: unknown;
@@ -72,7 +72,7 @@ export interface SessionMeta extends OpenRecord {
  * How far into `inbox.jsonl` the agent has been fed.
  *
  * Advanced only after a comment has actually reached the agent, never on read
- * alone — otherwise feedback disappears silently (docs/TESTS.md HOOK-06).
+ * alone — otherwise feedback disappears silently (TESTS.md HOOK-06).
  */
 export interface Cursor extends OpenRecord {
   inbox_seq: number;

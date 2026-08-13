@@ -1,6 +1,14 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/protocol" }
+    {
+      "path": "./packages/protocol"
+    },
+    {
+      "path": "./packages/mcp-server"
+    },
+    {
+      "path": "./packages/testkit"
+    }
   ]
 }
