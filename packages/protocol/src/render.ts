@@ -1,13 +1,19 @@
-import type { Comment } from '@agent-monitor/protocol';
+import type { Comment } from './schema.js';
+
+export interface RenderOptions {
+  /** Replaces the default "N new comments from the human:" line. */
+  heading?: string;
+}
 
 /**
- * Render human comments for the agent.
+ * Render human comments for an agent to read.
  *
- * This text lands directly in the agent's context, so it is written as instructions
- * rather than as a data dump: the kind is stated first, and the closing line says
- * what the agent is expected to do about it.
+ * Lives in the protocol package because both delivery channels need identical
+ * wording: the MCP tool reply and the hook's injected context. Text that lands in an
+ * agent's context is written as instructions — the kind first, then what it obliges
+ * the agent to do — since the agent acts on it rather than merely displaying it.
  */
-export function renderComments(comments: readonly Comment[]): string {
+export function renderComments(comments: readonly Comment[], options: RenderOptions = {}): string {
   if (comments.length === 0) return '';
 
   const lines = comments.map((comment) => {
@@ -16,7 +22,8 @@ export function renderComments(comments: readonly Comment[]): string {
   });
 
   const noun = comments.length === 1 ? 'comment' : 'comments';
-  return [`${comments.length} new ${noun} from the human:`, ...lines, '', guidanceFor(comments)].join('\n');
+  const heading = options.heading ?? `${comments.length} new ${noun} from the human:`;
+  return [heading, ...lines, '', guidanceFor(comments)].join('\n');
 }
 
 function guidanceFor(comments: readonly Comment[]): string {

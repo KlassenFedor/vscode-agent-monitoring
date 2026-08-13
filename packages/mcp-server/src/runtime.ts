@@ -10,6 +10,8 @@ import {
   type AgentEvent,
   type AgentKind,
   type Clock,
+  paragraphs,
+  renderComments,
   type Comment,
   type SessionStatus,
 } from '@agent-monitor/protocol';
@@ -23,7 +25,6 @@ import {
   requiredEnum,
   requiredString,
 } from './args.js';
-import { paragraphs, renderComments } from './format.js';
 
 export interface ToolResult {
   text: string;

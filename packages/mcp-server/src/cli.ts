@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { claimCurrentSession } from '@agent-monitor/protocol';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { createServer } from './server.js';
@@ -13,16 +14,24 @@ import { resolveSessionContext } from './session-env.js';
  */
 async function main(): Promise<void> {
   const context = resolveSessionContext(process.env, process.cwd());
+
+  // The hook may already have registered the agent's real session id for this
+  // workspace. Adopting it is what keeps both channels writing to one session
+  // directory; a generated id never displaces a real one.
+  const claim = await claimCurrentSession(context.root, context.agent, context.sessionId, {
+    authoritative: !context.generated,
+  });
+
   const { server } = createServer({
     root: context.root,
-    sessionId: context.sessionId,
+    sessionId: claim.session_id,
     agent: context.agent,
     cwd: context.cwd,
   });
 
   await server.connect(new StdioServerTransport());
   process.stderr.write(
-    `agent-monitor: session ${context.sessionId} (${context.agent}${context.generated ? ', generated id' : ''}) in ${context.root}\n`,
+    `agent-monitor: session ${claim.session_id} (${context.agent}${context.generated ? ', generated id' : ''}) in ${context.root}\n`,
   );
 }
 

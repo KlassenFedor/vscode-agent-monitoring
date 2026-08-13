@@ -11,4 +11,4 @@ export { detectAgent, generateSessionId, resolveSessionContext } from './session
 export type { SessionContext } from './session-env.js';
 
 export { ArgumentError } from './args.js';
-export { renderComments } from './format.js';
+export { renderComments } from '@agent-monitor/protocol';

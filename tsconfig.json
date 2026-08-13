@@ -8,6 +8,9 @@
       "path": "./packages/mcp-server"
     },
     {
+      "path": "./packages/hook"
+    },
+    {
       "path": "./packages/testkit"
     }
   ]

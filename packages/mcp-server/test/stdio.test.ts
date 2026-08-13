@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { SessionStore } from '@agent-monitor/protocol';
+import { claimCurrentSession, listSessionIds, SessionStore } from '@agent-monitor/protocol';
 import { FakeAgent, makeWorkspace, type TempWorkspace } from '@agent-monitor/testkit';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -61,6 +61,25 @@ describe('stdio entry point', () => {
     const store = SessionStore.open(workspace.root, 'sess-stdio');
     expect((await store.readMeta())?.agent).toBe('codex');
     expect((await store.listEvents())[0]?.title).toBe('milestone from a real process');
+  });
+
+  it('adopts the session the hook already registered for this workspace', async () => {
+    workspace = await makeWorkspace('agent-monitor-stdio-');
+    // What `agent-monitor-hook session-start` does: register the agent's real id.
+    await claimCurrentSession(workspace.root, 'claude', 'claude-real-id', { authoritative: true });
+
+    agent = await FakeAgent.spawn({
+      command: process.execPath,
+      args: [cli],
+      cwd: workspace.root,
+      // No session id in the environment, so the server would otherwise invent one.
+      env: { CLAUDECODE: '1' },
+    });
+    await agent.tool('report_progress', { title: 'milestone' });
+
+    const store = SessionStore.open(workspace.root, 'claude-real-id');
+    expect((await store.listEvents())[0]?.title).toBe('milestone');
+    expect(await listSessionIds(workspace.root)).toEqual(['claude-real-id']);
   });
 
   it('E2E-01: a comment written while the agent runs reaches its next report', async () => {

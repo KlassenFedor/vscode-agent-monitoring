@@ -80,5 +80,11 @@ export type {
   SessionStatus,
 } from './schema.js';
 
-export { SessionStore, normalizeRecords } from './session.js';
+export { SessionStore, findLatestSession, listSessionIds, normalizeRecords } from './session.js';
 export type { SessionInit, SessionStoreOptions, WrittenArtifact } from './session.js';
+
+export { claimCurrentSession, currentSessionPath, parseCurrentSession, readCurrentSession } from './current.js';
+export type { ClaimOptions, CurrentSession } from './current.js';
+
+export { paragraphs, renderComments } from './render.js';
+export type { RenderOptions } from './render.js';

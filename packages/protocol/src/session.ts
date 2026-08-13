@@ -17,6 +17,7 @@ import {
   PROTOCOL_VERSION,
   resolveArtifactPath,
   sessionDir,
+  sessionsDir,
   uniqueArtifactName,
 } from './paths.js';
 import {
@@ -253,6 +254,46 @@ export function normalizeRecords<T extends { seq: number; ts: string }>(records:
     result.push(record);
   }
   return result;
+}
+
+/** Session ids present in a workspace, newest activity irrelevant. Unsorted. */
+export async function listSessionIds(root: string): Promise<string[]> {
+  const entries = await listDirEntries(sessionsDir(root));
+  return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+}
+
+/**
+ * The session a new writer should attach to when nothing points it at one.
+ *
+ * Used as a fallback when the hook and the MCP server disagree about the id: the most
+ * recently updated unfinished session in this workspace is the one the human is
+ * watching.
+ */
+export async function findLatestSession(
+  root: string,
+  options: { includeDone?: boolean } = {},
+): Promise<SessionMeta | null> {
+  const ids = await listSessionIds(root);
+  const metas: SessionMeta[] = [];
+
+  for (const id of ids) {
+    const meta = await SessionStore.open(root, id).readMeta().catch(() => null);
+    if (!meta) continue;
+    if (!options.includeDone && meta.status === 'done') continue;
+    metas.push(meta);
+  }
+
+  metas.sort((a, b) => (a.updated_at === b.updated_at ? 0 : a.updated_at < b.updated_at ? 1 : -1));
+  return metas[0] ?? null;
+}
+
+async function listDirEntries(dir: string): Promise<import('node:fs').Dirent[]> {
+  try {
+    return await fs.readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (isErrno(error, 'ENOENT', 'ENOTDIR')) return [];
+    throw error;
+  }
 }
 
 async function listDir(dir: string): Promise<string[]> {
