@@ -5,6 +5,7 @@ import { makeWorkspace } from '@agent-monitor/testkit';
 import { describe, expect, it } from 'vitest';
 
 import {
+  isSetUp,
   MARKER_END,
   MARKER_START,
   replaceTomlBlock,
@@ -130,6 +131,16 @@ describe('setupWorkspace', () => {
     expect(updated).toContain('trust_level = "trusted"');
     expect(updated).toContain('[mcp_servers.agent-monitor]');
     expect(await read(`${codex}.agent-monitor.bak`)).toBe(original);
+  });
+
+  it('EXT-18: knows whether the workspace has been wired up, for the empty-panel message', async () => {
+    const paths = await makeSetup();
+
+    expect(await isSetUp(paths.root)).toBe(false);
+
+    await setupWorkspace(paths);
+
+    expect(await isSetUp(paths.root)).toBe(true);
   });
 
   it('names the agent to the Codex server, which is told nothing by its environment', async () => {

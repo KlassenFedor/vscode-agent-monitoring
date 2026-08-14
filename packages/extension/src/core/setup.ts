@@ -68,6 +68,22 @@ export async function setupWorkspace(paths: SetupPaths): Promise<SetupReport> {
   return report;
 }
 
+/**
+ * Has this workspace been wired up yet?
+ *
+ * Decides which of the two empty-panel messages a first-time user reads, so it answers
+ * "would running Setup tell them something new" rather than "was Setup run". The
+ * directory appears either way — Setup creates it, and so does the first agent that
+ * reports — and in both cases the answer is no.
+ */
+export async function isSetUp(root: string): Promise<boolean> {
+  try {
+    return (await fs.stat(monitorDir(root))).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 async function record(report: SetupReport, file: string, step: () => Promise<boolean>): Promise<void> {
   try {
     const changed = await step();

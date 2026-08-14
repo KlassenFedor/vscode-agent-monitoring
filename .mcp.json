@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "agent-monitor": {
+      "command": "/home/user_f/.vscode-server/bin/a5b500951314efd502d07465bd138dfbd714a960/node",
+      "args": [
+        "/home/user_f/.vscode-server/extensions/agent-monitor.agent-monitor-0.1.0/dist/mcp-server.cjs"
+      ],
+      "env": {
+        "AGENT_MONITOR_AGENT": "claude"
+      }
+    }
+  }
+}

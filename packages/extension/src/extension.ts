@@ -9,7 +9,7 @@ import { WorkspaceModel, type SessionView } from './core/model.js';
 import { planNotification, sessionLabel } from './core/notify.js';
 import { visiblePassive } from './core/passive/merge.js';
 import { PassiveTracker, type PassiveSessionView } from './core/passive/tracker.js';
-import { setupWorkspace } from './core/setup.js';
+import { isSetUp, setupWorkspace } from './core/setup.js';
 import { SessionWatcher } from './core/watcher.js';
 import { SessionPanels } from './ui/panel.js';
 import { SessionTreeProvider } from './ui/tree.js';
@@ -48,6 +48,10 @@ export function activate(context: vscode.ExtensionContext): void {
       notify(planNotification(session, previous.get(session.id)), panels, model);
     }
     previous = new Map(snapshot.sessions.map((session) => [session.id, session]));
+
+    // Chooses between the two welcome messages in an empty panel (`viewsWelcome` in
+    // package.json); until it is set, the panel offers Setup, which is the right guess.
+    await vscode.commands.executeCommand('setContext', 'agentMonitor.configured', await isSetUp(root));
 
     tree.refresh();
     panels.renderAll();

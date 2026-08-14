@@ -62,7 +62,8 @@
       },
       {
         "command": "agentMonitor.setupWorkspace",
-        "title": "Agent Monitor: Set Up Workspace"
+        "title": "Agent Monitor: Set Up Workspace",
+        "icon": "$(tools)"
       },
       {
         "command": "agentMonitor.comment",
@@ -77,12 +78,29 @@
     "menus": {
       "view/title": [
         {
+          "command": "agentMonitor.setupWorkspace",
+          "when": "view == agentMonitor.sessions",
+          "group": "navigation@1"
+        },
+        {
           "command": "agentMonitor.refresh",
           "when": "view == agentMonitor.sessions",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "agentMonitor.sessions",
+        "when": "!agentMonitor.configured",
+        "contents": "This workspace is not wired up yet.\n\nSetup points Claude Code and Codex at this panel: milestones as they happen, artefacts you can open, and comments that reach the agent while it works.\n[Set Up Workspace](command:agentMonitor.setupWorkspace)\nIt merges into whatever configuration you already have, and is safe to run again."
+      },
+      {
+        "view": "agentMonitor.sessions",
+        "when": "agentMonitor.configured",
+        "contents": "No agent sessions yet.\n\nStart Claude Code or Codex in this workspace. A session appears here as soon as the agent reports its first milestone.\n[Run Setup Again](command:agentMonitor.setupWorkspace)"
+      }
+    ],
     "configuration": {
       "title": "Agent Monitor",
       "properties": {
