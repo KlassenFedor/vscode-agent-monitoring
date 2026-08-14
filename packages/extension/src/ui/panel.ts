@@ -8,7 +8,7 @@ import { artifactsDir, type CommentKind } from '@agent-monitor/protocol';
 import { openKindFor } from '../core/artifacts.js';
 import type { WorkspaceModel } from '../core/model.js';
 import { sessionLabel } from '../core/notify.js';
-import { renderSession } from '../core/render.js';
+import { renderSession, renderUpdate } from '../core/render.js';
 
 interface WebviewMessage {
   type?: string;
@@ -26,6 +26,10 @@ interface WebviewMessage {
  */
 export class SessionPanels {
   readonly #panels = new Map<string, vscode.WebviewPanel>();
+  /** Panels whose document has been written; the rest of the time they are patched. */
+  readonly #written = new Set<string>();
+  /** Last update sent to each panel, so an unchanged session costs no message. */
+  readonly #sent = new Map<string, string>();
 
   constructor(private readonly model: WorkspaceModel) {}
 
@@ -45,7 +49,11 @@ export class SessionPanels {
       { enableScripts: true, retainContextWhenHidden: true },
     );
 
-    panel.onDidDispose(() => this.#panels.delete(sessionId));
+    panel.onDidDispose(() => {
+      this.#panels.delete(sessionId);
+      this.#written.delete(sessionId);
+      this.#sent.delete(sessionId);
+    });
     panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
       void this.#handle(sessionId, message);
     });
@@ -65,15 +73,34 @@ export class SessionPanels {
     if (!panel || !session) return;
 
     panel.title = sessionLabel(session);
-    panel.webview.html = renderSession(session, {
-      nonce: randomBytes(16).toString('base64'),
-      cspSource: panel.webview.cspSource,
-    });
+
+    // The document is written once. After that only the parts that change are sent
+    // over, because assigning `html` again reloads the page — and this runs on every
+    // refresh, which is once a second while an agent works: it would close an open
+    // dropdown and wipe a comment the human was still typing.
+    if (!this.#written.has(sessionId)) {
+      panel.webview.html = renderSession(session, {
+        nonce: randomBytes(16).toString('base64'),
+        cspSource: panel.webview.cspSource,
+      });
+      this.#written.add(sessionId);
+      this.#sent.set(sessionId, JSON.stringify(renderUpdate(session)));
+      return;
+    }
+
+    const update = renderUpdate(session);
+    const serialised = JSON.stringify(update);
+    if (this.#sent.get(sessionId) === serialised) return;
+
+    this.#sent.set(sessionId, serialised);
+    void panel.webview.postMessage({ type: 'update', ...update });
   }
 
   dispose(): void {
     for (const panel of this.#panels.values()) panel.dispose();
     this.#panels.clear();
+    this.#written.clear();
+    this.#sent.clear();
   }
 
   async #handle(sessionId: string, message: WebviewMessage): Promise<void> {

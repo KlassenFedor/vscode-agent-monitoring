@@ -153,6 +153,7 @@ async function promptForComment(model: WorkspaceModel): Promise<void> {
   if (sessions.length > 1) {
     const picked = await vscode.window.showQuickPick(sessions.map(sessionLabel), {
       title: 'Comment on which session?',
+      ignoreFocusOut: true,
     });
     if (!picked) return;
     target = sessions.find((session) => sessionLabel(session) === picked);
@@ -165,13 +166,16 @@ async function promptForComment(model: WorkspaceModel): Promise<void> {
       { label: 'fyi', detail: 'Context only.' },
       { label: 'stop', detail: 'Stop and wait for me.' },
     ],
-    { title: 'Kind of comment' },
+    // Anything that takes the focus — a panel refreshing, a notification — would
+    // otherwise dismiss the pick before the human has read the three options.
+    { title: 'Kind of comment', ignoreFocusOut: true },
   );
   if (!kind) return;
 
   const text = await vscode.window.showInputBox({
     title: 'Comment',
     placeHolder: 'e.g. do not touch legacy/',
+    ignoreFocusOut: true,
   });
   if (!text) return;
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { openKindFor } from '../src/core/artifacts.js';
 import type { SessionView } from '../src/core/model.js';
 import { planNotification } from '../src/core/notify.js';
-import { escapeHtml, renderSession } from '../src/core/render.js';
+import { escapeHtml, renderSession, renderUpdate } from '../src/core/render.js';
 
 function view(overrides: Partial<SessionView> = {}): SessionView {
   return {
@@ -22,6 +22,81 @@ function view(overrides: Partial<SessionView> = {}): SessionView {
 }
 
 const options = { nonce: 'test-nonce', cspSource: 'vscode-webview://x' };
+
+describe('EXT-20: a panel is written once and patched afterwards', () => {
+  const withEvent = view({
+    events: [
+      {
+        seq: 1,
+        ts: '2026-08-13T10:00:00.000Z',
+        type: 'progress',
+        title: 'Parser split into three modules',
+      },
+    ],
+  });
+
+  it('offers every changing part of the page as a fragment', () => {
+    const update = renderUpdate(withEvent);
+
+    expect(update.timeline).toContain('Parser split into three modules');
+    expect(update.meta).toContain('working');
+    expect(update.question).toBe('');
+  });
+
+  it('puts those fragments behind the ids the update targets', () => {
+    // The two halves have to agree: a renamed id would leave the panel frozen on its
+    // first render, and nothing else in the suite would notice.
+    const html = renderSession(withEvent, options);
+    const update = renderUpdate(withEvent);
+
+    for (const id of ['session-title', 'session-meta', 'question-slot', 'timeline']) {
+      expect(html).toContain(`id="${id}"`);
+    }
+    expect(html).toContain(update.timeline);
+    expect(html).toContain(update.meta);
+  });
+
+  it('keeps the composer out of what gets replaced', () => {
+    // The bug this exists for: rewriting the document once a second closed the kind
+    // dropdown and emptied the comment box while the human was still using them.
+    const update = renderUpdate(withEvent);
+
+    for (const fragment of [update.timeline, update.meta, update.question]) {
+      expect(fragment).not.toContain('id="comment"');
+      expect(fragment).not.toContain('id="kind"');
+    }
+  });
+
+  it('escapes agent output in the fragments too, not only in the document', () => {
+    const update = renderUpdate(
+      view({
+        events: [
+          {
+            seq: 1,
+            ts: '2026-08-13T10:00:00.000Z',
+            type: 'question',
+            title: '<img src=x onerror=alert(1)>',
+            options: ['" onclick="alert(2)'],
+            needs_answer: true,
+          },
+        ],
+        waitingQuestion: {
+          seq: 1,
+          ts: '2026-08-13T10:00:00.000Z',
+          type: 'question',
+          title: '<img src=x onerror=alert(1)>',
+          options: ['" onclick="alert(2)'],
+          needs_answer: true,
+        },
+      }),
+    );
+
+    expect(update.timeline).not.toContain('<img src=x');
+    expect(update.question).not.toContain('<img src=x');
+    expect(update.question).not.toContain('" onclick="alert(2)"');
+    expect(update.question).toContain('&quot; onclick=&quot;alert(2)');
+  });
+});
 
 describe('EXT-13: the webview never executes agent output', () => {
   it('escapes markup in titles, summaries and comments', () => {

@@ -24,30 +24,26 @@ export interface RenderOptions {
  * from model output — both worse trades than losing bold text.
  */
 export function renderSession(session: SessionView, options: RenderOptions): string {
-  const timeline = session.events.map((event) => renderEvent(event, session)).join('\n');
+  const update = renderUpdate(session);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${options.cspSource} 'unsafe-inline'; script-src 'nonce-${options.nonce}';">
-<title>${escapeHtml(sessionLabel(session))}</title>
+<title>${escapeHtml(update.title)}</title>
 <style>${STYLES}</style>
 </head>
 <body>
 <header class="session-header">
-  <h1>${escapeHtml(sessionLabel(session))}</h1>
-  <p class="meta">
-    <span class="status status-${escapeHtml(session.status)}">${escapeHtml(session.status)}</span>
-    <span>${escapeHtml(session.meta?.agent ?? 'agent')}</span>
-    ${session.stale ? '<span class="stale">no activity for a while</span>' : ''}
-  </p>
+  <h1 id="session-title">${escapeHtml(update.title)}</h1>
+  <p class="meta" id="session-meta">${update.meta}</p>
 </header>
 
-${session.waitingQuestion ? renderQuestion(session.waitingQuestion) : ''}
+<div id="question-slot">${update.question}</div>
 
-<main class="timeline">
-${timeline === '' ? '<p class="empty">No reports yet. The agent publishes one at each milestone.</p>' : timeline}
+<main class="timeline" id="timeline">
+${update.timeline}
 </main>
 
 <footer class="composer">
@@ -66,6 +62,42 @@ ${timeline === '' ? '<p class="empty">No reports yet. The agent publishes one at
 <script nonce="${options.nonce}">${SCRIPT}</script>
 </body>
 </html>`;
+}
+
+/**
+ * Everything about a panel that changes while it is open.
+ *
+ * Kept separate from the document around it because rewriting a webview's `html` is a
+ * page load: it closes an open dropdown, empties the comment box and takes the focus,
+ * which on a one-second refresh makes the composer unusable. The panel is written
+ * once and then patched with these fragments.
+ */
+export interface SessionUpdate {
+  /** Panel title, and the heading inside it. */
+  title: string;
+  meta: string;
+  question: string;
+  timeline: string;
+}
+
+export function renderUpdate(session: SessionView): SessionUpdate {
+  const events = session.events.map((event) => renderEvent(event, session)).join('\n');
+
+  return {
+    title: sessionLabel(session),
+    meta: [
+      `<span class="status status-${escapeHtml(session.status)}">${escapeHtml(session.status)}</span>`,
+      `<span>${escapeHtml(session.meta?.agent ?? 'agent')}</span>`,
+      session.stale ? '<span class="stale">no activity for a while</span>' : '',
+    ]
+      .filter(Boolean)
+      .join('\n    '),
+    question: session.waitingQuestion ? renderQuestion(session.waitingQuestion) : '',
+    timeline:
+      events === ''
+        ? '<p class="empty">No reports yet. The agent publishes one at each milestone.</p>'
+        : events,
+  };
 }
 
 function renderQuestion(question: AgentEvent): string {
@@ -174,6 +206,21 @@ const vscode = acquireVsCodeApi();
 const box = document.getElementById('comment');
 const kind = document.getElementById('kind');
 let replyTo;
+
+// Patch the parts that change; never the composer. A half-typed comment and an open
+// dropdown belong to the human, and a report arriving mid-sentence must not take them.
+window.addEventListener('message', (event) => {
+  const update = event.data;
+  if (!update || update.type !== 'update') return;
+
+  const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 40;
+  document.getElementById('session-title').textContent = update.title;
+  document.getElementById('session-meta').innerHTML = update.meta;
+  document.getElementById('question-slot').innerHTML = update.question;
+  document.getElementById('timeline').innerHTML = update.timeline;
+  // Following the agent should keep following it; reading history should not jump.
+  if (atBottom) window.scrollTo(0, document.body.scrollHeight);
+});
 
 function send() {
   const text = box.value.trim();
