@@ -1,3 +1,5 @@
+import * as os from 'node:os';
+
 import { readCurrentSession, SessionStore } from '@agent-monitor/protocol';
 import { makeWorkspace } from '@agent-monitor/testkit';
 import { describe, expect, it } from 'vitest';
@@ -226,6 +228,60 @@ describe('stop', () => {
     await harness.run('stop');
 
     expect((await harness.store.readMeta())?.status).toBe('done');
+  });
+
+  it('HOOK-12: never blocks a stop that a Stop hook already blocked', async () => {
+    const harness = await makeHookHarness();
+    await harness.human.comment('this must not trap the agent');
+
+    // The agent reached Stop, was blocked, kept working and came back. Blocking again
+    // on the same unread comment is a session that can never end.
+    const result = await harness.run('stop', { payload: { stop_hook_active: true } });
+
+    expect(result.stdout).toBe('');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('HOOK-12: the comment survives for the next turn rather than being swallowed', async () => {
+    const harness = await makeHookHarness();
+    await harness.human.comment('still unread');
+
+    await harness.run('stop', { payload: { stop_hook_active: true } });
+
+    expect((await harness.store.readCursor()).inbox_seq).toBe(0);
+    expect(await harness.store.unreadComments()).toHaveLength(1);
+  });
+});
+
+describe('workspace resolution', () => {
+  it('falls back to CLAUDE_PROJECT_DIR when the payload says nothing', async () => {
+    const harness = await makeHookHarness();
+    await harness.human.comment('found through the project directory');
+
+    // Empty stdin and a working directory that is not the workspace: this is the shape
+    // an invocation takes when the agent has changed directory mid-session.
+    const result = await runHook('post-tool', {
+      stdin: '',
+      argv: [],
+      env: { CLAUDE_PROJECT_DIR: harness.root },
+      cwd: os.tmpdir(),
+    });
+
+    expect(result.stdout).toContain('found through the project directory');
+  });
+
+  it('lets the payload outrank CLAUDE_PROJECT_DIR', async () => {
+    const harness = await makeHookHarness();
+    await harness.human.comment('the payload knows better');
+
+    const result = await runHook('post-tool', {
+      stdin: JSON.stringify({ session_id: harness.sessionId, cwd: harness.root }),
+      argv: [],
+      env: { CLAUDE_PROJECT_DIR: os.tmpdir() },
+      cwd: os.tmpdir(),
+    });
+
+    expect(result.stdout).toContain('the payload knows better');
   });
 });
 

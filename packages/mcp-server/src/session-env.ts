@@ -22,13 +22,21 @@ export interface SessionContext {
  * the agent session.
  */
 export function resolveSessionContext(env: NodeJS.ProcessEnv, cwd: string): SessionContext {
-  const root = env.AGENT_MONITOR_ROOT?.trim() || cwd;
+  // Claude Code starts the server in the workspace and also names it outright; the
+  // explicit variable is preferred because a server started elsewhere would otherwise
+  // create a second, empty `.agent-monitor/` where nobody is looking.
+  const root = env.AGENT_MONITOR_ROOT?.trim() || env.CLAUDE_PROJECT_DIR?.trim() || cwd;
   const agent = detectAgent(env);
 
+  // Measured against Claude Code 2.1.229: `CLAUDE_CODE_SESSION_ID` is the one that is
+  // actually set, and it matches the id the hook receives on stdin, which is what puts
+  // both channels in the same session directory. `CLAUDE_SESSION_ID` has never been
+  // observed; it stays in the list because reading a variable that is absent costs
+  // nothing and the naming has changed before.
   const candidates = [
     env.AGENT_MONITOR_SESSION_ID,
-    env.CLAUDE_SESSION_ID,
     env.CLAUDE_CODE_SESSION_ID,
+    env.CLAUDE_SESSION_ID,
     env.CODEX_SESSION_ID,
     env.CODEX_THREAD_ID,
   ];

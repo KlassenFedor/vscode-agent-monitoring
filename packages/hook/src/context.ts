@@ -35,9 +35,17 @@ export interface HookContext {
   clock: Clock;
 }
 
-/** Workspace the hook is running for: an explicit override, else what the agent reported. */
+/**
+ * Workspace the hook is running for: an explicit override, else what the agent reported.
+ *
+ * `CLAUDE_PROJECT_DIR` sits between the payload and the process directory because it is
+ * the one value that still names the workspace when the hook is invoked with neither a
+ * payload nor a useful working directory.
+ */
 export function resolveRoot(io: HookIo, payload: HookPayload): string {
-  return io.env.AGENT_MONITOR_ROOT?.trim() || payload.cwd?.trim() || io.cwd;
+  return (
+    io.env.AGENT_MONITOR_ROOT?.trim() || payload.cwd?.trim() || io.env.CLAUDE_PROJECT_DIR?.trim() || io.cwd
+  );
 }
 
 export function resolveAgent(io: HookIo): AgentKind {

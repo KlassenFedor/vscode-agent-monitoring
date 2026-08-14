@@ -69,6 +69,12 @@ export async function stop(io: HookIo): Promise<HookResult> {
   const context = await resolveExistingSession(io, payload);
   if (!context.store) return SILENT;
 
+  // Claude Code sets this when the agent is only trying to stop because a Stop hook
+  // blocked it a moment ago. Blocking again is how a monitoring tool turns into a
+  // session that can never end — a cursor that failed to commit would do it — so the
+  // second time around the comments are left for the next turn (TESTS.md HOOK-12).
+  if (payload.stop_hook_active === true) return SILENT;
+
   const unread = await context.store.unreadComments();
   if (unread.length > 0) {
     return {

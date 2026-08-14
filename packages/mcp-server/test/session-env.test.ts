@@ -44,6 +44,29 @@ describe('MCP-15: session identity', () => {
     expect(resolveSessionContext({ AGENT_MONITOR_ROOT: '/elsewhere' }, '/work').root).toBe('/elsewhere');
   });
 
+  it('takes the workspace Claude Code names, over the working directory', () => {
+    expect(resolveSessionContext({ CLAUDE_PROJECT_DIR: '/project' }, '/work').root).toBe('/project');
+    expect(
+      resolveSessionContext({ AGENT_MONITOR_ROOT: '/elsewhere', CLAUDE_PROJECT_DIR: '/project' }, '/work').root,
+    ).toBe('/elsewhere');
+  });
+
+  it('uses the session id Claude Code actually exports, the one the hook also sees', () => {
+    // Measured on 2.1.229: CLAUDE_CODE_SESSION_ID is set, CLAUDE_SESSION_ID is not, and
+    // the value equals the `session_id` the hook receives on stdin. Both channels
+    // landing on the same id is what keeps them in one session directory.
+    const context = resolveSessionContext(
+      { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'c14bc751-5ab3-47fa-8788-a6bb6c4b86cc' },
+      '/work',
+    );
+
+    expect(context).toMatchObject({
+      sessionId: 'c14bc751-5ab3-47fa-8788-a6bb6c4b86cc',
+      agent: 'claude',
+      generated: false,
+    });
+  });
+
   it('recognises each agent, and admits when it cannot tell', () => {
     expect(detectAgent({ CLAUDECODE: '1' })).toBe('claude');
     expect(detectAgent({ CODEX_HOME: '/home/x/.codex' })).toBe('codex');

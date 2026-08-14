@@ -11,6 +11,8 @@ export interface HookPayload {
   cwd?: string;
   hook_event_name?: string;
   tool_name?: string;
+  /** Stop event only: true when this stop was already blocked by a Stop hook. */
+  stop_hook_active?: boolean;
   [key: string]: unknown;
 }
 

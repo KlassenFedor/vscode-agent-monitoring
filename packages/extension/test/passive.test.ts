@@ -95,6 +95,30 @@ describe('PASV-02: reading a Claude Code session', () => {
     expect(session?.stale).toBe(false);
   });
 
+  it('keeps the camelCase session id when the record also carries a snake_case one', async () => {
+    const harness = await makePassiveHarness();
+    const file = await harness.installClaude('2026-08-basic.jsonl');
+
+    // A real transcript carries both: `sessionId` is this session, `session_id` is the
+    // one it was resumed from (measured — docs-local/live/FINDINGS.md §6). Reading the
+    // snake_case field would silently attribute the work to the previous session.
+    await fs.appendFile(
+      file,
+      `${JSON.stringify({
+        type: 'assistant',
+        cwd: harness.root,
+        sessionId: 'claude-session-1',
+        session_id: 'claude-session-before-clear',
+        timestamp: '2026-08-13T10:03:00.000Z',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Still the same session.' }] },
+      })}\n`,
+    );
+
+    const [session] = await harness.tracker().refresh();
+
+    expect(session?.sessionId).toBe('claude-session-1');
+  });
+
   it('PASV-08: calls a session stale once it has been quiet for long enough', async () => {
     const harness = await makePassiveHarness();
     await harness.installClaude('2026-08-basic.jsonl');
