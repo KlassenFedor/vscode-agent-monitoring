@@ -15,6 +15,23 @@ import type { SessionView } from '../src/core/model.js';
 import { trackTemp } from './helpers.js';
 
 const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'transcripts');
+
+/**
+ * Put a real workspace path into a fixture.
+ *
+ * The placeholders sit inside JSON strings, and on Windows a path is full of
+ * backslashes: pasted in raw it produces `"C:\Users\..."`, which is not valid JSON, and
+ * the parser under test then correctly skips every record — a green-looking fixture
+ * that tests nothing, and eight red tests on the first Windows CI run.
+ *
+ * `__CWD_JSON__` marks the deeper case: Codex passes tool arguments as JSON inside
+ * JSON, so that text is parsed twice and has to survive being escaped twice.
+ */
+export function renderFixture(content: string, root: string): string {
+  const escaped = JSON.stringify(root).slice(1, -1);
+  const escapedTwice = JSON.stringify(escaped).slice(1, -1);
+  return content.replaceAll('__CWD_JSON__', escapedTwice).replaceAll('__CWD__', escaped);
+}
 const NOW = Date.parse('2026-08-13T10:05:00.000Z');
 
 interface PassiveHarness {
@@ -36,13 +53,8 @@ async function makePassiveHarness(): Promise<PassiveHarness> {
   const home = homeWorkspace.root;
   const clock = createManualClock(NOW);
 
-  // The placeholder sits inside a JSON string, and on Windows the root is full of
-  // backslashes: pasting it in raw produces `"C:\Users\..."`, which is not valid JSON,
-  // and every record in the fixture is silently skipped.
-  const jsonSafeRoot = JSON.stringify(root).slice(1, -1);
-
   const install = async (source: string, target: string): Promise<string> => {
-    const content = (await fs.readFile(source, 'utf8')).replaceAll('__CWD__', jsonSafeRoot);
+    const content = renderFixture(await fs.readFile(source, 'utf8'), root);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, content, 'utf8');
     return target;
@@ -71,6 +83,31 @@ async function makePassiveHarness(): Promise<PassiveHarness> {
       }),
   };
 }
+
+describe('the fixtures themselves', () => {
+  it('stay valid JSON for a workspace path with backslashes in it', async () => {
+    // Runs on every platform on purpose: this is the check that would have caught the
+    // Windows breakage without waiting for a Windows CI run (TESTS.md §7).
+    const windowsRoot = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\agent-monitor-x';
+    const files = [
+      path.join(fixtures, 'claude', '2026-08-basic.jsonl'),
+      path.join(fixtures, 'codex', '2026-08-basic.jsonl'),
+    ];
+
+    for (const file of files) {
+      const rendered = renderFixture(await fs.readFile(file, 'utf8'), windowsRoot);
+      for (const line of rendered.split('\n').filter((text) => text.trim() !== '')) {
+        const record = JSON.parse(line) as { payload?: { arguments?: unknown } };
+        expect(line).toContain(':');
+
+        // Codex tool arguments are JSON inside JSON; the inner document has to parse too.
+        const args = record.payload?.arguments;
+        if (typeof args === 'string') expect(() => JSON.parse(args)).not.toThrow();
+      }
+      expect(rendered).toContain(windowsRoot.replaceAll('\\', '\\\\'));
+    }
+  });
+});
 
 describe('PASV-01: locating Claude Code transcripts', () => {
   it('reproduces the directory name Claude Code derives from a path', () => {
