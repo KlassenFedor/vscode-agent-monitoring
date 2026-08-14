@@ -101,8 +101,9 @@ export async function stop(io: HookIo): Promise<HookResult> {
  * honest; feedback there travels over the MCP tools instead (DESIGN.md §4.2).
  */
 export async function notify(io: HookIo): Promise<HookResult> {
-  // Flags are ownership markers written by the setup command, never payload.
-  const raw = io.argv.find((argument) => !argument.startsWith('--')) ?? io.stdin;
+  // The payload is picked by shape, not by position: the rest of the argument list is
+  // ownership markers and `--agent`, whose value would otherwise look like a payload.
+  const raw = io.argv.find(looksLikeJson) ?? io.stdin;
   const payload = parsePayload(raw ?? '');
   const context = await resolveExistingSession(io, payload);
   if (!context.store) return SILENT;
@@ -113,6 +114,10 @@ export async function notify(io: HookIo): Promise<HookResult> {
     if (meta?.status === 'working') await context.store.patchMeta({ status: 'waiting_review' });
   }
   return SILENT;
+}
+
+function looksLikeJson(argument: string): boolean {
+  return argument.trimStart().startsWith('{');
 }
 
 async function isDebounced(context: HookContext, io: HookIo): Promise<boolean> {

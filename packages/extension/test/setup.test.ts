@@ -45,7 +45,11 @@ describe('setupWorkspace', () => {
     expect(report.notes).toEqual([]);
     const mcp = await readJson(path.join(paths.root, '.mcp.json'));
     expect(mcp.mcpServers).toMatchObject({
-      'agent-monitor': { command: '/usr/bin/node', args: ['/ext/dist/mcp-server.cjs'] },
+      'agent-monitor': {
+        command: '/usr/bin/node',
+        args: ['/ext/dist/mcp-server.cjs'],
+        env: { AGENT_MONITOR_AGENT: 'claude' },
+      },
     });
 
     const settings = await readJson(path.join(paths.root, '.claude', 'settings.json'));
@@ -126,6 +130,57 @@ describe('setupWorkspace', () => {
     expect(updated).toContain('trust_level = "trusted"');
     expect(updated).toContain('[mcp_servers.agent-monitor]');
     expect(await read(`${codex}.agent-monitor.bak`)).toBe(original);
+  });
+
+  it('names the agent to the Codex server, which is told nothing by its environment', async () => {
+    const paths = await makeSetup();
+
+    await setupWorkspace(paths);
+
+    expect(await read(paths.codexConfig as string)).toContain('env = { AGENT_MONITOR_AGENT = "codex" }');
+  });
+
+  it('registers the Codex notify program above the first table, as TOML requires', async () => {
+    const paths = await makeSetup();
+    const codex = paths.codexConfig as string;
+    await fs.writeFile(codex, 'model = "gpt-5.6-sol"\n\n[projects."/work"]\ntrust_level = "trusted"\n', 'utf8');
+
+    await setupWorkspace(paths);
+
+    const lines = (await read(codex)).split('\n');
+    const notifyLine = lines.findIndex((line) => line.startsWith('notify ='));
+    const firstTable = lines.findIndex((line) => line.startsWith('['));
+
+    expect(notifyLine).toBeGreaterThanOrEqual(0);
+    expect(notifyLine).toBeLessThan(firstTable);
+    expect(lines[notifyLine]).toContain('/ext/dist/hook.cjs');
+    expect(lines[notifyLine]).toContain('--agent=codex');
+    expect(lines[notifyLine]).toContain('--agent-monitor');
+  });
+
+  it("leaves someone else's notify program alone", async () => {
+    const paths = await makeSetup();
+    const codex = paths.codexConfig as string;
+    await fs.writeFile(codex, 'notify = ["/usr/bin/my-notifier"]\n', 'utf8');
+
+    await setupWorkspace(paths);
+
+    const updated = await read(codex);
+    expect(updated).toContain('notify = ["/usr/bin/my-notifier"]');
+    expect(updated).not.toContain('--agent=codex');
+    expect(updated).toContain('[mcp_servers.agent-monitor]');
+  });
+
+  it('repoints its own notify program after the extension moves', async () => {
+    const paths = await makeSetup();
+    const codex = paths.codexConfig as string;
+    await setupWorkspace(paths);
+    await setupWorkspace({ ...paths, hook: '/new-ext/dist/hook.cjs' });
+
+    const updated = await read(codex);
+    expect(updated).toContain('/new-ext/dist/hook.cjs');
+    expect(updated).not.toContain('/ext/dist/hook.cjs');
+    expect(updated.match(/^notify =/gm)).toHaveLength(1);
   });
 
   it('EXT-09: reports a broken config instead of overwriting it', async () => {

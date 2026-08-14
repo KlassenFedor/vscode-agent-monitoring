@@ -4,6 +4,7 @@ import { readCurrentSession, SessionStore } from '@agent-monitor/protocol';
 import { makeWorkspace } from '@agent-monitor/testkit';
 import { describe, expect, it } from 'vitest';
 
+import { resolveAgent } from '../src/context.js';
 import { runHook } from '../src/hook.js';
 import { makeHookHarness, parseStdout } from './helpers.js';
 
@@ -291,6 +292,31 @@ describe('notify', () => {
 
     const result = await harness.run('notify', {
       argv: [JSON.stringify({ type: 'agent-turn-complete', cwd: harness.root })],
+      env: { AGENT_MONITOR_ROOT: harness.root },
+    });
+
+    expect(result.stdout).toBe('');
+    expect((await harness.store.readMeta())?.status).toBe('waiting_review');
+  });
+
+  it('reads the agent from the argument list, the only channel Codex leaves open', async () => {
+    // Codex passes its notify program no environment at all (measured —
+    // docs-local/live/FINDINGS.md §5), so `--agent` has to carry it.
+    expect(resolveAgent({ stdin: '', argv: ['--agent=codex'], env: {}, cwd: '/work' })).toBe('codex');
+    expect(resolveAgent({ stdin: '', argv: ['--agent', 'codex'], env: {}, cwd: '/work' })).toBe('codex');
+    expect(resolveAgent({ stdin: '', argv: [], env: {}, cwd: '/work' })).toBe('claude');
+    expect(resolveAgent({ stdin: '', argv: ['--agent=codex'], env: { AGENT_MONITOR_AGENT: 'claude' }, cwd: '/work' })).toBe(
+      'claude',
+    );
+  });
+
+  it('finds the payload by shape, not by position in the argument list', async () => {
+    const harness = await makeHookHarness();
+
+    // The real invocation is `notify --agent=codex --agent-monitor '<json>'`, and the
+    // value of `--agent` must never be mistaken for the payload.
+    const result = await harness.run('notify', {
+      argv: ['--agent-monitor', JSON.stringify({ type: 'agent-turn-complete', cwd: harness.root })],
       env: { AGENT_MONITOR_ROOT: harness.root },
     });
 

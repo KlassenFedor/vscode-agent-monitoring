@@ -49,11 +49,26 @@ export function resolveRoot(io: HookIo, payload: HookPayload): string {
 }
 
 export function resolveAgent(io: HookIo): AgentKind {
-  const declared = io.env.AGENT_MONITOR_AGENT?.trim().toLowerCase();
+  const declared = io.env.AGENT_MONITOR_AGENT?.trim().toLowerCase() ?? agentFromArgv(io.argv);
   if (AGENT_KINDS.includes(declared as AgentKind)) return declared as AgentKind;
   // The hook is wired into Claude Code's hook system; Codex reaches this code only
   // through `notify`, which passes the agent explicitly.
   return 'claude';
+}
+
+/**
+ * `--agent codex` / `--agent=codex` from the command line.
+ *
+ * Codex hands its `notify` program no environment of its own, so the argument list is
+ * the only place the agent can be named (measured — docs-local/live/FINDINGS.md §5).
+ */
+function agentFromArgv(argv: readonly string[]): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index] ?? '';
+    if (argument.startsWith('--agent=')) return argument.slice('--agent='.length).trim().toLowerCase();
+    if (argument === '--agent') return argv[index + 1]?.trim().toLowerCase();
+  }
+  return undefined;
 }
 
 /**

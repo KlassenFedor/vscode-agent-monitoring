@@ -96,7 +96,10 @@ export async function writeMcpConfig(paths: SetupPaths): Promise<boolean> {
   const config = ((await readJson(file)) ?? {}) as Record<string, unknown>;
   const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
 
-  const desired = { command: paths.node, args: [paths.mcpServer] };
+  // The agent is named outright rather than sniffed from the environment: Claude Code
+  // does export enough to guess, Codex exports nothing at all, and a session filed
+  // under the wrong agent is a session the human cannot find.
+  const desired = { command: paths.node, args: [paths.mcpServer], env: { AGENT_MONITOR_AGENT: 'claude' } };
   if (deepEqual(servers[OWNERSHIP_MARKER], desired)) return false;
 
   config.mcpServers = { ...servers, [OWNERSHIP_MARKER]: desired };
@@ -157,14 +160,44 @@ export async function writeCodexConfig(file: string, paths: SetupPaths): Promise
     `[mcp_servers.${OWNERSHIP_MARKER}]`,
     `command = ${JSON.stringify(paths.node)}`,
     `args = [${JSON.stringify(paths.mcpServer)}]`,
+    // Codex hands an MCP server none of its own environment, so nothing about the
+    // server's surroundings says which agent started it.
+    `env = { AGENT_MONITOR_AGENT = "codex" }`,
   ].join('\n');
 
-  const next = replaceTomlBlock(current, `[mcp_servers.${OWNERSHIP_MARKER}]`, block);
+  const next = ensureCodexNotify(replaceTomlBlock(current, `[mcp_servers.${OWNERSHIP_MARKER}]`, block), paths);
   if (next === current) return false;
 
   if (current !== '') await writeFile(`${file}.agent-monitor.bak`, current);
   await writeFile(file, next);
   return true;
+}
+
+/**
+ * Register the `notify` program, which is how Codex says a turn has finished.
+ *
+ * Two constraints shape this. A bare key must precede every table in TOML, so the line
+ * goes above the first `[section]` rather than at the end of the file. And `notify`
+ * holds a single program for the whole installation: if the user already has one that
+ * is not ours, it stays, and Codex simply keeps its status channel unregistered
+ * (DESIGN.md §4.2 — feedback there travels over MCP anyway).
+ */
+export function ensureCodexNotify(source: string, paths: SetupPaths): string {
+  const desired = `notify = [${JSON.stringify(paths.node)}, ${JSON.stringify(paths.hook)}, "notify", "--agent=codex", "${HOOK_OWNERSHIP_FLAG}"]`;
+
+  const lines = source.split('\n');
+  const existing = lines.findIndex((line) => /^\s*notify\s*=/.test(line));
+  if (existing !== -1) {
+    if (!lines[existing]?.includes(HOOK_OWNERSHIP_FLAG)) return source;
+    if (lines[existing] === desired) return source;
+    lines[existing] = desired;
+    return lines.join('\n');
+  }
+
+  const firstTable = lines.findIndex((line) => line.trimStart().startsWith('['));
+  const insertAt = firstTable === -1 ? lines.length : firstTable;
+  lines.splice(insertAt, 0, desired, ...(firstTable === -1 ? [] : ['']));
+  return lines.join('\n');
 }
 
 /** Replace a TOML table, or append it. A table runs until the next line starting with `[`. */
