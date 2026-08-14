@@ -13,13 +13,8 @@ tsconfig*.json
 .vscode/**
 node_modules/**
 
-# tsc output: bundled already
-dist/core/**
-dist/ui/**
-dist/extension.js
-dist/extension.js.map
-dist/**/*.d.ts
-dist/**/*.d.ts.map
+# tsc output, which lives in out/ and is already inside the bundles
+out/**
 
 # Source maps of the bundles: ~250 KB of debugging aid nobody installs an extension for
 dist/**/*.map

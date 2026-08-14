@@ -29,7 +29,6 @@ export {
   CURSOR_FILE,
   EVENTS_FILE,
   INBOX_FILE,
-  INDEX_FILE,
   META_FILE,
   MONITOR_DIR,
   PROTOCOL_VERSION,
@@ -43,7 +42,6 @@ export {
   cursorPath,
   eventsPath,
   inboxPath,
-  indexPath,
   isSafeArtifactName,
   isSafeSessionId,
   lockPathFor,
@@ -83,7 +81,12 @@ export type {
 export { SessionStore, findLatestSession, listSessionIds, normalizeRecords } from './session.js';
 export type { SessionInit, SessionStoreOptions, WrittenArtifact } from './session.js';
 
-export { claimCurrentSession, currentSessionPath, parseCurrentSession, readCurrentSession } from './current.js';
+export {
+  claimCurrentSession,
+  currentSessionPath,
+  parseCurrentSession,
+  readCurrentSession,
+} from './current.js';
 export type { ClaimOptions, CurrentSession } from './current.js';
 
 export { paragraphs, renderComments } from './render.js';

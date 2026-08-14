@@ -19,9 +19,13 @@ describe('SessionWatcher', () => {
     const store = await harness.agent();
 
     let fired = 0;
-    const watcher = new SessionWatcher(harness.root, () => {
-      fired += 1;
-    }, { pollIntervalMs: 5_000 });
+    const watcher = new SessionWatcher(
+      harness.root,
+      () => {
+        fired += 1;
+      },
+      { pollIntervalMs: 5_000 },
+    );
     await watcher.start();
 
     try {
@@ -38,9 +42,13 @@ describe('SessionWatcher', () => {
     const store = await harness.agent();
 
     let fired = 0;
-    const watcher = new SessionWatcher(harness.root, () => {
-      fired += 1;
-    }, { pollIntervalMs: 100, useFsWatch: false });
+    const watcher = new SessionWatcher(
+      harness.root,
+      () => {
+        fired += 1;
+      },
+      { pollIntervalMs: 100, useFsWatch: false },
+    );
     await watcher.start();
 
     try {
@@ -55,9 +63,13 @@ describe('SessionWatcher', () => {
     const harness = await makeExtHarness();
 
     let fired = 0;
-    const watcher = new SessionWatcher(harness.root, () => {
-      fired += 1;
-    }, { pollIntervalMs: 20 });
+    const watcher = new SessionWatcher(
+      harness.root,
+      () => {
+        fired += 1;
+      },
+      { pollIntervalMs: 20 },
+    );
     await watcher.start();
 
     try {
@@ -73,9 +85,13 @@ describe('SessionWatcher', () => {
     const store = await harness.agent();
 
     let fired = 0;
-    const watcher = new SessionWatcher(harness.root, () => {
-      fired += 1;
-    }, { pollIntervalMs: 20, debounceMs: 5 });
+    const watcher = new SessionWatcher(
+      harness.root,
+      () => {
+        fired += 1;
+      },
+      { pollIntervalMs: 20, debounceMs: 5 },
+    );
     await watcher.start();
     await waitFor(() => fired > 0, 2_000);
 

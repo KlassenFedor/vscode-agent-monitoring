@@ -20,10 +20,7 @@ export interface CreateServerResult {
  */
 export function createServer(options: RuntimeOptions): CreateServerResult {
   const runtime = new MonitorRuntime(options);
-  const server = new Server(
-    { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {} } },
-  );
+  const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((tool) => ({

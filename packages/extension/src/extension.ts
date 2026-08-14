@@ -8,7 +8,8 @@ import type { CommentKind } from '@agent-monitor/protocol';
 import { WorkspaceModel, type SessionView } from './core/model.js';
 import { planNotification, sessionLabel } from './core/notify.js';
 import { visiblePassive } from './core/passive/merge.js';
-import { PassiveTracker, type PassiveSessionView } from './core/passive/tracker.js';
+import { PassiveTracker, type KnownTranscript, type PassiveSessionView } from './core/passive/tracker.js';
+import { rotateSessions } from './core/rotate.js';
 import { isSetUp, setupWorkspace } from './core/setup.js';
 import { SessionWatcher } from './core/watcher.js';
 import { SessionPanels } from './ui/panel.js';
@@ -42,7 +43,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const snapshot = await model.refresh();
     // Cheap when nothing has ever been written; switches itself off if the agents'
     // transcript format moves out from under it.
-    passive = visiblePassive(snapshot.sessions, await tracker.refresh());
+    passive = visiblePassive(snapshot.sessions, await tracker.refresh(knownTranscripts(snapshot.sessions)));
 
     for (const session of snapshot.sessions) {
       notify(planNotification(session, previous.get(session.id)), panels, model);
@@ -78,10 +79,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
   void watcher.start();
   void refresh();
+
+  // Once per window, not per refresh: old sessions do not age fast enough to be worth
+  // checking again, and a delete racing the watcher would only make noise.
+  void rotateSessions(root, { keepMs: (config.get<number>('keepSessionsForDays') ?? 14) * 24 * 60 * 60_000 });
 }
 
 export function deactivate(): void {
   // Everything is disposed through context.subscriptions.
+}
+
+/** Transcripts the hook recorded for us, so the passive layer need not guess at paths. */
+function knownTranscripts(sessions: readonly SessionView[]): KnownTranscript[] {
+  return sessions.flatMap((session) =>
+    session.meta?.transcript_path ? [{ path: session.meta.transcript_path, agent: session.meta.agent }] : [],
+  );
 }
 
 function updateStatus(status: vscode.StatusBarItem, sessions: readonly SessionView[]): void {
@@ -157,7 +169,10 @@ async function promptForComment(model: WorkspaceModel): Promise<void> {
   );
   if (!kind) return;
 
-  const text = await vscode.window.showInputBox({ title: 'Comment', placeHolder: 'e.g. do not touch legacy/' });
+  const text = await vscode.window.showInputBox({
+    title: 'Comment',
+    placeHolder: 'e.g. do not touch legacy/',
+  });
   if (!text) return;
 
   await model.postComment(target.id, { text, kind: kind.label as CommentKind });

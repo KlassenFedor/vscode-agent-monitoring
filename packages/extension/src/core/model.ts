@@ -191,11 +191,9 @@ function latestTimestamp(
   comments: readonly Comment[],
   meta: SessionMeta | null,
 ): string | null {
-  const candidates = [
-    events.at(-1)?.ts,
-    comments.at(-1)?.ts,
-    meta?.updated_at,
-  ].filter((value): value is string => typeof value === 'string');
+  const candidates = [events.at(-1)?.ts, comments.at(-1)?.ts, meta?.updated_at].filter(
+    (value): value is string => typeof value === 'string',
+  );
 
   if (candidates.length === 0) return null;
   return candidates.reduce((latest, value) => (value > latest ? value : latest));

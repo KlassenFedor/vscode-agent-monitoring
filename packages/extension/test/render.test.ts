@@ -182,9 +182,7 @@ describe('EXT-06: when to interrupt the human', () => {
   });
 
   it('does not re-report an error that was already on screen', () => {
-    const events = [
-      { seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'error' as const, title: 'old news' },
-    ];
+    const events = [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'error' as const, title: 'old news' }];
     const previous = view({ events });
 
     expect(planNotification(view({ events }), previous).level).toBe('none');

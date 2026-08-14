@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, type Stats } from 'node:fs';
 
 /** Narrow an unknown throw to a Node filesystem error, optionally matching its code. */
 export function isErrno(error: unknown, ...codes: string[]): error is NodeJS.ErrnoException {
@@ -13,7 +13,7 @@ export async function ensureDir(dirPath: string): Promise<void> {
 }
 
 /** `fs.stat` that answers `null` instead of throwing when the path is absent. */
-export async function statOrNull(filePath: string): Promise<import('node:fs').Stats | null> {
+export async function statOrNull(filePath: string): Promise<Stats | null> {
   try {
     return await fs.stat(filePath);
   } catch (error) {

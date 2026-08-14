@@ -181,7 +181,10 @@ export async function writeCodexConfig(file: string, paths: SetupPaths): Promise
     `env = { AGENT_MONITOR_AGENT = "codex" }`,
   ].join('\n');
 
-  const next = ensureCodexNotify(replaceTomlBlock(current, `[mcp_servers.${OWNERSHIP_MARKER}]`, block), paths);
+  const next = ensureCodexNotify(
+    replaceTomlBlock(current, `[mcp_servers.${OWNERSHIP_MARKER}]`, block),
+    paths,
+  );
   if (next === current) return false;
 
   if (current !== '') await writeFile(`${file}.agent-monitor.bak`, current);
@@ -289,7 +292,9 @@ async function readJson(file: string): Promise<unknown | null> {
   try {
     return JSON.parse(text) as unknown;
   } catch (error) {
-    throw new Error(`is not valid JSON, so it was left alone: ${(error as Error).message}`);
+    throw new Error(`is not valid JSON, so it was left alone: ${(error as Error).message}`, {
+      cause: error,
+    });
   }
 }
 

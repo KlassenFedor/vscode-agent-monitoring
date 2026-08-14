@@ -66,6 +66,13 @@ export interface SessionMeta extends OpenRecord {
   title?: string;
   branch?: string;
   ended_at?: string;
+  /**
+   * The agent's own transcript for this session, as the agent reported it.
+   *
+   * Recorded so the passive layer can read the right file instead of deriving its path
+   * from the working directory, which is guesswork about someone else's naming scheme.
+   */
+  transcript_path?: string;
 }
 
 /**
@@ -92,7 +99,8 @@ export function parseEvent(raw: unknown): AgentEvent {
   };
 
   if (o.phase !== undefined) event.phase = requireString(o.phase, 'event.phase', { maxLength: 200 });
-  if (o.summary !== undefined) event.summary = requireString(o.summary, 'event.summary', { allowEmpty: true });
+  if (o.summary !== undefined)
+    event.summary = requireString(o.summary, 'event.summary', { allowEmpty: true });
   if (o.next !== undefined) event.next = requireString(o.next, 'event.next', { allowEmpty: true });
   if (o.needs_answer !== undefined) event.needs_answer = requireBoolean(o.needs_answer, 'event.needs_answer');
   if (o.artifacts !== undefined) event.artifacts = requireArtifactRefs(o.artifacts, 'event.artifacts');
@@ -133,6 +141,9 @@ export function parseMeta(raw: unknown): SessionMeta {
   if (o.title !== undefined) meta.title = requireString(o.title, 'meta.title', { maxLength: 500 });
   if (o.branch !== undefined) meta.branch = requireString(o.branch, 'meta.branch', { maxLength: 500 });
   if (o.ended_at !== undefined) meta.ended_at = requireTimestamp(o.ended_at, 'meta.ended_at');
+  if (o.transcript_path !== undefined) {
+    meta.transcript_path = requireString(o.transcript_path, 'meta.transcript_path', { maxLength: 4096 });
+  }
 
   return meta;
 }

@@ -1,6 +1,6 @@
 import { notify, postTool, sessionStart, stop } from './commands.js';
 import type { HookIo } from './context.js';
-import { SILENT, type HookResult } from './output.js';
+import { note, type HookResult } from './output.js';
 
 export const COMMANDS = {
   'session-start': sessionStart,
@@ -40,6 +40,6 @@ export async function runHook(command: string, io: HookIo): Promise<HookResult> 
     return await handler(io);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { ...SILENT, stderr: `agent-monitor: ${name} failed: ${message}\n` };
+    return note(`${name} failed: ${message}`);
   }
 }

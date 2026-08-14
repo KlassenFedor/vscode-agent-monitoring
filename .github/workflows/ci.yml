@@ -36,6 +36,14 @@ jobs:
 
       - run: npm run typecheck
 
+      # Style is checked once, on Linux: the same files produce the same result
+      # everywhere, and paying for it three times buys nothing.
+      - if: runner.os == 'Linux'
+        run: npm run lint
+
+      - if: runner.os == 'Linux'
+        run: npm run format:check
+
       - run: npm test
 
   coverage:

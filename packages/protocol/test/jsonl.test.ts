@@ -149,6 +149,7 @@ describe('readJsonl', () => {
 
   it('PROTO-15: reads CRLF line endings and a leading BOM', async () => {
     const file = path.join(await makeRoot(), 'events.jsonl');
+    // eslint-disable-next-line no-irregular-whitespace -- the BOM is the thing under test
     await writeText(file, `﻿${record(1).trimEnd()}\r\n${record(2).trimEnd()}\r\n`);
 
     const chunk = await readJsonl(file, 0, passthrough);
@@ -160,7 +161,10 @@ describe('readJsonl', () => {
 
   it('PROTO-14: skips lines that parse as JSON but fail validation', async () => {
     const file = path.join(await makeRoot(), 'events.jsonl');
-    await writeText(file, `${record(1)}{"seq":2,"ts":"2026-01-01T00:00:00.000Z","type":"nonsense","title":"x"}\n${record(3)}`);
+    await writeText(
+      file,
+      `${record(1)}{"seq":2,"ts":"2026-01-01T00:00:00.000Z","type":"nonsense","title":"x"}\n${record(3)}`,
+    );
 
     const chunk = await readJsonl(file, 0, parseEvent);
 

@@ -114,6 +114,11 @@
           "default": 600000,
           "description": "A session with no activity for this long is shown as stale."
         },
+        "agentMonitor.keepSessionsForDays": {
+          "type": "number",
+          "default": 14,
+          "description": "Delete session directories in .agent-monitor/ that have been untouched for this many days. Set to 0 to keep everything."
+        },
         "agentMonitor.notifyOnQuestion": {
           "type": "boolean",
           "default": true,

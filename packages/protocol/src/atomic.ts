@@ -22,7 +22,10 @@ export async function writeFileAtomic(filePath: string, payload: string | Uint8A
   const dir = path.dirname(filePath);
   await ensureDir(dir);
 
-  const tmpPath = path.join(dir, `.${path.basename(filePath)}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`);
+  const tmpPath = path.join(
+    dir,
+    `.${path.basename(filePath)}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`,
+  );
 
   const handle = await fs.open(tmpPath, 'wx');
   try {

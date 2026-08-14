@@ -13,6 +13,8 @@ export interface HookPayload {
   tool_name?: string;
   /** Stop event only: true when this stop was already blocked by a Stop hook. */
   stop_hook_active?: boolean;
+  /** Stop event only: the last thing the agent said, which makes a decent title. */
+  last_assistant_message?: string;
   [key: string]: unknown;
 }
 

@@ -3,7 +3,7 @@ export type { CommandName } from './hook.js';
 
 export { DEFAULT_DEBOUNCE_MS, notify, postTool, sessionStart, stop } from './commands.js';
 
-export { additionalContext, block, SILENT } from './output.js';
+export { additionalContext, block, note, SILENT } from './output.js';
 export type { HookOutcome, HookResult } from './output.js';
 
 export { parsePayload } from './payload.js';

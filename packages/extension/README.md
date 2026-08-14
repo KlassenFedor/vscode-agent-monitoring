@@ -55,11 +55,12 @@ not the agent thought to look.
 
 ## Settings
 
-| Setting | Default | What it does |
-|---|---|---|
-| `agentMonitor.pollIntervalMs` | `1000` | How often to re-read session files when the watcher misses a change. |
-| `agentMonitor.staleAfterMs` | `600000` | A session quiet for this long is shown as stale. |
-| `agentMonitor.notifyOnQuestion` | `true` | Notify when an agent is blocked waiting for your answer. |
+| Setting                            | Default  | What it does                                                         |
+| ---------------------------------- | -------- | -------------------------------------------------------------------- |
+| `agentMonitor.pollIntervalMs`      | `1000`   | How often to re-read session files when the watcher misses a change. |
+| `agentMonitor.staleAfterMs`        | `600000` | A session quiet for this long is shown as stale.                     |
+| `agentMonitor.keepSessionsForDays` | `14`     | Delete sessions untouched for this many days. `0` keeps everything.  |
+| `agentMonitor.notifyOnQuestion`    | `true`   | Notify when an agent is blocked waiting for your answer.             |
 
 ## Privacy
 

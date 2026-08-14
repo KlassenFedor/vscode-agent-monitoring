@@ -17,8 +17,14 @@ export function visiblePassive(
     sessions.filter((session) => session.status !== 'done').map((session) => session.meta?.agent),
   );
   const knownIds = new Set(sessions.map((session) => session.id));
+  const knownTranscripts = new Set(
+    sessions.map((session) => session.meta?.transcript_path).filter((file): file is string => Boolean(file)),
+  );
 
   return passive.filter((view) => {
+    // Same file, therefore the same work — whatever the two sides call it, and whether
+    // or not that session has finished reporting.
+    if (knownTranscripts.has(view.transcriptPath)) return false;
     if (view.sessionId !== null && knownIds.has(view.sessionId)) return false;
     return !reportingAgents.has(view.agent);
   });

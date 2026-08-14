@@ -66,6 +66,17 @@ export abstract class ActivityParser {
     return { ...this.activity, changedFiles: [...this.#changed].slice(-MAX_CHANGED_FILES) };
   }
 
+  /**
+   * The workspace this transcript belongs to, once a record has mentioned one.
+   *
+   * Separate from {@link result} because it is checked after every read, to drop
+   * rollouts belonging to other projects, and `result` copies the whole summary
+   * including the changed-file list.
+   */
+  get cwd(): string | null {
+    return this.activity.cwd;
+  }
+
   protected abstract consume(record: Record<string, unknown>): void;
 
   protected noteTimestamp(value: unknown): void {

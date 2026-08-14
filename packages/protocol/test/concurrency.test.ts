@@ -38,9 +38,7 @@ describe('concurrent appends', () => {
     const workers = 4;
     const perWorker = 250;
 
-    await Promise.all(
-      Array.from({ length: workers }, (_, index) => runWorker(file, perWorker, `w${index}`)),
-    );
+    await Promise.all(Array.from({ length: workers }, (_, index) => runWorker(file, perWorker, `w${index}`)));
 
     const raw = await readText(file);
     const lines = raw.trimEnd().split('\n');
@@ -134,9 +132,9 @@ describe('a lock left behind by a crash', () => {
 
     const started = Date.now();
     // Waiting out the staleness timeout would stall the next writer for half a minute.
-    await expect(
-      withFileLock(lock, () => 'recovered', { timeoutMs: 2_000, staleMs: 60_000 }),
-    ).resolves.toBe('recovered');
+    await expect(withFileLock(lock, () => 'recovered', { timeoutMs: 2_000, staleMs: 60_000 })).resolves.toBe(
+      'recovered',
+    );
     expect(Date.now() - started).toBeLessThan(1_000);
   });
 
@@ -157,9 +155,9 @@ describe('a lock left behind by a crash', () => {
     const justOld = new Date(Date.now() - 2_000);
     await fs.utimes(lock, justOld, justOld);
 
-    await expect(
-      withFileLock(lock, () => 'recovered', { timeoutMs: 2_000, staleMs: 60_000 }),
-    ).resolves.toBe('recovered');
+    await expect(withFileLock(lock, () => 'recovered', { timeoutMs: 2_000, staleMs: 60_000 })).resolves.toBe(
+      'recovered',
+    );
   });
 
   it('PROTO-48: still respects a lock that was created a moment ago', async () => {

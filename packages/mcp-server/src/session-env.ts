@@ -64,6 +64,9 @@ export function detectAgent(env: NodeJS.ProcessEnv): AgentKind {
 
 /** `claude-20260813T142011-3f9a2b`, chosen to satisfy the session id character rules. */
 export function generateSessionId(agent: AgentKind, now: Date = new Date()): string {
-  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '');
+  const stamp = now
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d+Z$/, '');
   return `${agent}-${stamp}-${randomBytes(3).toString('hex')}`;
 }

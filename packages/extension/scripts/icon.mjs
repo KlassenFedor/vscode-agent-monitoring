@@ -79,7 +79,8 @@ function distanceToSegment(x, y, [ax, ay], [bx, by]) {
   const dx = bx - ax;
   const dy = by - ay;
   const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, ((x - ax) * dx + (y - ay) * dy) / lengthSquared));
+  const t =
+    lengthSquared === 0 ? 0 : Math.min(1, Math.max(0, ((x - ax) * dx + (y - ay) * dy) / lengthSquared));
   return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
 }
 

@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, type Dirent } from 'node:fs';
 
 import { readJsonFile, writeFileAtomic, writeJsonAtomic } from './atomic.js';
 import { systemClock, type Clock } from './clock.js';
@@ -277,7 +277,9 @@ export async function findLatestSession(
   const metas: SessionMeta[] = [];
 
   for (const id of ids) {
-    const meta = await SessionStore.open(root, id).readMeta().catch(() => null);
+    const meta = await SessionStore.open(root, id)
+      .readMeta()
+      .catch(() => null);
     if (!meta) continue;
     if (!options.includeDone && meta.status === 'done') continue;
     metas.push(meta);
@@ -287,7 +289,7 @@ export async function findLatestSession(
   return metas[0] ?? null;
 }
 
-async function listDirEntries(dir: string): Promise<import('node:fs').Dirent[]> {
+async function listDirEntries(dir: string): Promise<Dirent[]> {
   try {
     return await fs.readdir(dir, { withFileTypes: true });
   } catch (error) {

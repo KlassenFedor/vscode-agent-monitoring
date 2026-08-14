@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { readJsonl, systemClock, type AgentKind, type Clock } from '@agent-monitor/protocol';
 
-import { ActivityParser, type PassiveActivity } from './activity.js';
+import { type ActivityParser, type PassiveActivity } from './activity.js';
 import { ClaudeTranscriptParser } from './claude.js';
 import { CodexTranscriptParser } from './codex.js';
 import { claudeProjectSlug } from './slug.js';
@@ -11,6 +11,12 @@ import { claudeProjectSlug } from './slug.js';
 export interface PassiveSessionView extends PassiveActivity {
   transcriptPath: string;
   stale: boolean;
+}
+
+/** A transcript whose location came from the agent rather than from a naming rule. */
+export interface KnownTranscript {
+  path: string;
+  agent: AgentKind;
 }
 
 export interface PassiveTrackerOptions {
@@ -81,8 +87,15 @@ export class PassiveTracker {
     return this.#disabled;
   }
 
-  async refresh(): Promise<PassiveSessionView[]> {
+  /**
+   * @param known Transcripts the agents named themselves, from the session metadata.
+   *   Preferred over discovery: the derived directory name is guesswork about another
+   *   tool's conventions, this is the file the agent said it was writing.
+   */
+  async refresh(known: readonly KnownTranscript[] = []): Promise<PassiveSessionView[]> {
     if (this.#disabled) return [];
+
+    for (const entry of known) this.#track(entry.path, entry.agent);
 
     try {
       await this.#discover();
@@ -115,7 +128,7 @@ export class PassiveTracker {
       else if (chunk.records.length > 0) this.#failures = 0;
 
       // A rollout from another project is discovered, identified, and then left alone.
-      const cwd = state.parser.result().cwd;
+      const cwd = state.parser.cwd;
       if (cwd !== null && path.resolve(cwd) !== path.resolve(this.root)) state.ignored = true;
     } catch (error) {
       this.#fail(`${file}: ${error instanceof Error ? error.message : String(error)}`);
@@ -148,7 +161,7 @@ export class PassiveTracker {
       });
     }
 
-    views.sort((a, b) => (a.lastActivityAt ?? '') < (b.lastActivityAt ?? '') ? 1 : -1);
+    views.sort((a, b) => ((a.lastActivityAt ?? '') < (b.lastActivityAt ?? '') ? 1 : -1));
     return views;
   }
 

@@ -119,6 +119,24 @@ describe('PASV-02: reading a Claude Code session', () => {
     expect(session?.sessionId).toBe('claude-session-1');
   });
 
+  it('PASV-11: reads a transcript the agent named, even where the derived path is wrong', async () => {
+    const harness = await makePassiveHarness();
+    // Somewhere the naming rule would never look: this is the case where Claude Code
+    // changes how it names project directories and the slug stops matching.
+    const elsewhere = path.join(harness.home, 'elsewhere', 'moved-session.jsonl');
+    const source = await harness.installClaude('2026-08-basic.jsonl');
+    await fs.mkdir(path.dirname(elsewhere), { recursive: true });
+    await fs.rename(source, elsewhere);
+
+    const withoutHint = await harness.tracker().refresh();
+    const withHint = await harness.tracker().refresh([{ path: elsewhere, agent: 'claude' }]);
+
+    expect(withoutHint).toEqual([]);
+    expect(withHint).toHaveLength(1);
+    expect(withHint[0]?.transcriptPath).toBe(elsewhere);
+    expect(withHint[0]?.currentTool).toBe('Write');
+  });
+
   it('PASV-08: calls a session stale once it has been quiet for long enough', async () => {
     const harness = await makePassiveHarness();
     await harness.installClaude('2026-08-basic.jsonl');
@@ -368,5 +386,20 @@ describe('showing passive sessions next to reporting ones', () => {
   it('keeps the other agent visible', () => {
     const views = visiblePassive([reporting()], [passive({ agent: 'codex', sessionId: 'codex-1' })]);
     expect(views.map((view) => view.agent)).toEqual(['codex']);
+  });
+
+  it('PASV-11: hides a passive view of the transcript a session named as its own', () => {
+    // Ids never match between the two sides, but the file does — and it is the same
+    // work, so it must not appear twice even after that session reported `done`.
+    const done = reporting({
+      status: 'done',
+      meta: {
+        ...(reporting().meta as NonNullable<SessionView['meta']>),
+        status: 'done',
+        transcript_path: '/home/u/.claude/projects/-work/session.jsonl',
+      },
+    });
+
+    expect(visiblePassive([done], [passive()])).toEqual([]);
   });
 });

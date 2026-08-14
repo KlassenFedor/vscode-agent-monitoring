@@ -11,7 +11,6 @@ export const EVENTS_FILE = 'events.jsonl';
 export const INBOX_FILE = 'inbox.jsonl';
 export const META_FILE = 'meta.json';
 export const CURSOR_FILE = 'cursor.json';
-export const INDEX_FILE = 'index.jsonl';
 
 /** Bumped whenever an on-disk shape changes incompatibly. */
 export const PROTOCOL_VERSION = 1;
@@ -46,10 +45,6 @@ export function cursorPath(root: string, sessionId: string): string {
 
 export function artifactsDir(root: string, sessionId: string): string {
   return path.join(sessionDir(root, sessionId), ARTIFACTS_DIR);
-}
-
-export function indexPath(root: string): string {
-  return path.join(monitorDir(root), INDEX_FILE);
 }
 
 /** Lock file guarding a data file. Kept next to it so both share a filesystem. */

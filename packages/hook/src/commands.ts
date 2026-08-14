@@ -1,4 +1,4 @@
-import { renderComments, type Comment, type SessionStore } from '@agent-monitor/protocol';
+import { renderComments, type Comment, type SessionMeta, type SessionStore } from '@agent-monitor/protocol';
 
 import { resolveExistingSession, resolveOrCreateSession, type HookContext, type HookIo } from './context.js';
 import { additionalContext, block, note, SILENT, type HookResult } from './output.js';
@@ -13,11 +13,15 @@ import { parsePayload, type HookPayload } from './payload.js';
  */
 export const DEFAULT_DEBOUNCE_MS = 5_000;
 
+/** Long enough to say what the turn was about, short enough for a sidebar row. */
+const TITLE_MAX_CHARS = 80;
+
 /** Called once when the agent session starts: create the session and claim its id. */
 export async function sessionStart(io: HookIo): Promise<HookResult> {
   const payload = parsePayload(io.stdin);
   const context = await resolveOrCreateSession(io, payload);
-  return { ...SILENT, stderr: `agent-monitor: session ${context.sessionId} ready\n` };
+  await recordTranscript(context, payload);
+  return note(`session ${context.sessionId} ready`);
 }
 
 /**
@@ -87,11 +91,47 @@ export async function stop(io: HookIo): Promise<HookResult> {
     };
   }
 
+  // Backfills the transcript for a session the MCP server created before any hook ran;
+  // Stop happens once a turn, so this costs nothing on the hot path.
+  await recordTranscript(context, payload);
+
   const meta = await context.store.readMeta();
-  if (meta?.status === 'working') {
-    await context.store.patchMeta({ status: 'waiting_review' });
-  }
+  const patch: Partial<SessionMeta> = {};
+  if (meta?.status === 'working') patch.status = 'waiting_review';
+
+  // A session nobody named is listed as "claude session c14bc751", which tells the
+  // human nothing. The agent's closing sentence is a title it wrote without being
+  // asked; a title it chose deliberately through `set_status` outranks it.
+  const spoken = titleFrom(payload.last_assistant_message);
+  if (spoken && !meta?.title) patch.title = spoken;
+
+  if (Object.keys(patch).length > 0) await context.store.patchMeta(patch);
   return SILENT;
+}
+
+function titleFrom(message: unknown): string | null {
+  if (typeof message !== 'string') return null;
+  const line = message.trim().split('\n')[0]?.replace(/\s+/g, ' ').trim() ?? '';
+  if (line === '') return null;
+  return line.length <= TITLE_MAX_CHARS ? line : `${line.slice(0, TITLE_MAX_CHARS - 1).trimEnd()}…`;
+}
+
+/**
+ * Note where the agent keeps this session's transcript.
+ *
+ * Every hook invocation carries the path (measured — docs-local/live/FINDINGS.md §1),
+ * and it is the only trustworthy way to find that file: the alternative is rebuilding
+ * the agent's own directory naming from the working directory and hoping it still
+ * matches. Written once, then only when it changes.
+ */
+async function recordTranscript(context: HookContext, payload: HookPayload): Promise<void> {
+  const transcript = payload.transcript_path?.trim();
+  if (!transcript || !context.store) return;
+
+  const meta = await context.store.readMeta();
+  if (!meta || meta.transcript_path === transcript) return;
+
+  await context.store.patchMeta({ transcript_path: transcript });
 }
 
 /**

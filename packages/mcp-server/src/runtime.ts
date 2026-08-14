@@ -207,7 +207,8 @@ export class MonitorRuntime {
       const args = asArgs(rawArgs);
       const question = requiredString(args, 'question', { maxLength: 1000 });
       const options = optionalStringArray(args, 'options', { maxItems: 10 });
-      const timeoutMs = optionalInt(args, 'timeout_ms', { min: 1000, max: 60 * 60_000 }) ?? this.#askTimeoutMs;
+      const timeoutMs =
+        optionalInt(args, 'timeout_ms', { min: 1000, max: 60 * 60_000 }) ?? this.#askTimeoutMs;
 
       await this.#ensureSession();
       const event = await this.store.appendEvent({

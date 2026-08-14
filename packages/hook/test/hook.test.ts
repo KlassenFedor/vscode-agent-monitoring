@@ -30,6 +30,26 @@ describe('session-start', () => {
     });
   });
 
+  it('HOOK-13: records where the agent keeps this session transcript', async () => {
+    const harness = await makeHookHarness({ createSession: false });
+
+    await harness.run('session-start', {
+      payload: { transcript_path: '/home/u/.claude/projects/-w/s.jsonl' },
+    });
+
+    expect((await harness.store.readMeta())?.transcript_path).toBe('/home/u/.claude/projects/-w/s.jsonl');
+  });
+
+  it('HOOK-13: backfills the transcript on Stop for a session the server opened first', async () => {
+    const harness = await makeHookHarness();
+
+    expect((await harness.store.readMeta())?.transcript_path).toBeUndefined();
+
+    await harness.run('stop', { payload: { transcript_path: '/home/u/.claude/projects/-w/s.jsonl' } });
+
+    expect((await harness.store.readMeta())?.transcript_path).toBe('/home/u/.claude/projects/-w/s.jsonl');
+  });
+
   it('still starts a session when the agent sends no id', async () => {
     const workspace = await makeWorkspace('agent-monitor-hook-');
     try {
@@ -231,6 +251,35 @@ describe('stop', () => {
     expect((await harness.store.readMeta())?.status).toBe('done');
   });
 
+  it('HOOK-14: names an unnamed session after the agent last said', async () => {
+    const harness = await makeHookHarness();
+
+    await harness.run('stop', {
+      payload: { last_assistant_message: 'Split the parser into three modules.\nTests are green.' },
+    });
+
+    expect((await harness.store.readMeta())?.title).toBe('Split the parser into three modules.');
+  });
+
+  it('HOOK-14: leaves a title the agent chose deliberately', async () => {
+    const harness = await makeHookHarness();
+    await harness.store.patchMeta({ title: 'Refactor: parser' });
+
+    await harness.run('stop', { payload: { last_assistant_message: 'All done here.' } });
+
+    expect((await harness.store.readMeta())?.title).toBe('Refactor: parser');
+  });
+
+  it('HOOK-14: shortens a closing sentence too long for a sidebar row', async () => {
+    const harness = await makeHookHarness();
+
+    await harness.run('stop', { payload: { last_assistant_message: 'x'.repeat(200) } });
+
+    const title = (await harness.store.readMeta())?.title ?? '';
+    expect(title).toHaveLength(80);
+    expect(title.endsWith('…')).toBe(true);
+  });
+
   it('HOOK-12: never blocks a stop that a Stop hook already blocked', async () => {
     const harness = await makeHookHarness();
     await harness.human.comment('this must not trap the agent');
@@ -305,9 +354,14 @@ describe('notify', () => {
     expect(resolveAgent({ stdin: '', argv: ['--agent=codex'], env: {}, cwd: '/work' })).toBe('codex');
     expect(resolveAgent({ stdin: '', argv: ['--agent', 'codex'], env: {}, cwd: '/work' })).toBe('codex');
     expect(resolveAgent({ stdin: '', argv: [], env: {}, cwd: '/work' })).toBe('claude');
-    expect(resolveAgent({ stdin: '', argv: ['--agent=codex'], env: { AGENT_MONITOR_AGENT: 'claude' }, cwd: '/work' })).toBe(
-      'claude',
-    );
+    expect(
+      resolveAgent({
+        stdin: '',
+        argv: ['--agent=codex'],
+        env: { AGENT_MONITOR_AGENT: 'claude' },
+        cwd: '/work',
+      }),
+    ).toBe('claude');
   });
 
   it('finds the payload by shape, not by position in the argument list', async () => {

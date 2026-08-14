@@ -1,0 +1,7 @@
+dist/
+out/
+coverage/
+node_modules/
+package-lock.json
+docs-local/live/out/
+packages/extension/test/fixtures/

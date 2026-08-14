@@ -44,7 +44,12 @@ export async function withFileLock<T>(
   let releaseQueue!: () => void;
   const queued = previous
     .catch(() => undefined)
-    .then(() => new Promise<void>((resolve) => { releaseQueue = resolve; }));
+    .then(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseQueue = resolve;
+        }),
+    );
   inProcessQueues.set(key, queued);
 
   await previous.catch(() => undefined);

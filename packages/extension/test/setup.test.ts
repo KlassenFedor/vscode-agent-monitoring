@@ -154,7 +154,11 @@ describe('setupWorkspace', () => {
   it('registers the Codex notify program above the first table, as TOML requires', async () => {
     const paths = await makeSetup();
     const codex = paths.codexConfig as string;
-    await fs.writeFile(codex, 'model = "gpt-5.6-sol"\n\n[projects."/work"]\ntrust_level = "trusted"\n', 'utf8');
+    await fs.writeFile(
+      codex,
+      'model = "gpt-5.6-sol"\n\n[projects."/work"]\ntrust_level = "trusted"\n',
+      'utf8',
+    );
 
     await setupWorkspace(paths);
 

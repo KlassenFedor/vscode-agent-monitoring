@@ -48,7 +48,10 @@ export const TOOLS: ToolDefinition[] = [
           type: 'string',
           description: 'Markdown. What you did, what you found, what surprised you. A few short paragraphs.',
         },
-        next: { type: 'string', description: 'What you intend to do next, so the human can redirect you early.' },
+        next: {
+          type: 'string',
+          description: 'What you intend to do next, so the human can redirect you early.',
+        },
         artifacts: {
           type: 'array',
           items: { type: 'string' },
@@ -74,12 +77,14 @@ export const TOOLS: ToolDefinition[] = [
       properties: {
         name: {
           type: 'string',
-          description: 'File name only, letters/digits/dot/dash/underscore, e.g. "plan.diff". No directories.',
+          description:
+            'File name only, letters/digits/dot/dash/underscore, e.g. "plan.diff". No directories.',
         },
         content: { type: 'string', description: 'Inline contents. Mutually exclusive with path.' },
         path: {
           type: 'string',
-          description: 'Path to an existing file, relative to the workspace root. Mutually exclusive with content.',
+          description:
+            'Path to an existing file, relative to the workspace root. Mutually exclusive with content.',
         },
         kind: {
           type: 'string',
@@ -87,7 +92,10 @@ export const TOOLS: ToolDefinition[] = [
           description: 'How the extension should render it. Diffs open in the native diff viewer.',
         },
         title: { type: 'string', description: 'Headline for the timeline entry. Defaults to the file name.' },
-        summary: { type: 'string', description: 'Optional note explaining what to look at in this artifact.' },
+        summary: {
+          type: 'string',
+          description: 'Optional note explaining what to look at in this artifact.',
+        },
       },
       required: ['name'],
       additionalProperties: false,
@@ -108,7 +116,8 @@ export const TOOLS: ToolDefinition[] = [
         since: {
           type: 'integer',
           minimum: 0,
-          description: 'Only return comments after this comment number. Omit to get everything you have not seen.',
+          description:
+            'Only return comments after this comment number. Omit to get everything you have not seen.',
         },
       },
       additionalProperties: false,
@@ -131,7 +140,8 @@ export const TOOLS: ToolDefinition[] = [
         options: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Concrete choices, shown to the human as buttons. Offer them whenever the choice is closed.',
+          description:
+            'Concrete choices, shown to the human as buttons. Offer them whenever the choice is closed.',
         },
         timeout_ms: {
           type: 'integer',

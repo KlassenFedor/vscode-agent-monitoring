@@ -47,7 +47,8 @@ describe('MCP-15: session identity', () => {
   it('takes the workspace Claude Code names, over the working directory', () => {
     expect(resolveSessionContext({ CLAUDE_PROJECT_DIR: '/project' }, '/work').root).toBe('/project');
     expect(
-      resolveSessionContext({ AGENT_MONITOR_ROOT: '/elsewhere', CLAUDE_PROJECT_DIR: '/project' }, '/work').root,
+      resolveSessionContext({ AGENT_MONITOR_ROOT: '/elsewhere', CLAUDE_PROJECT_DIR: '/project' }, '/work')
+        .root,
     ).toBe('/elsewhere');
   });
 

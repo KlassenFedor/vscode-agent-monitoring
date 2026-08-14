@@ -19,7 +19,10 @@ beforeAll(() => {
   if (!existsSync(cli)) {
     // npx is a shell script on POSIX and a .cmd on Windows; execFileSync needs the
     // exact name because it does not go through a shell.
-    execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['tsc', '-b', 'packages/hook'], { cwd: repoRoot, stdio: 'inherit' });
+    execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['tsc', '-b', 'packages/hook'], {
+      cwd: repoRoot,
+      stdio: 'inherit',
+    });
   }
 }, 120_000);
 
