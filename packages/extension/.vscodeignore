@@ -1,0 +1,25 @@
+# What must not travel in the VSIX.
+#
+# The package ships three bundles and nothing else that executes: `extension.cjs` for
+# VS Code, `mcp-server.cjs` and `hook.cjs` for the agents to spawn. Everything the
+# TypeScript compiler emits alongside them is already inside those bundles, so shipping
+# it would only mean two copies of the same code and a slower install.
+
+src/**
+test/**
+scripts/**
+tsconfig*.json
+*.tsbuildinfo
+.vscode/**
+node_modules/**
+
+# tsc output: bundled already
+dist/core/**
+dist/ui/**
+dist/extension.js
+dist/extension.js.map
+dist/**/*.d.ts
+dist/**/*.d.ts.map
+
+# Source maps of the bundles: ~250 KB of debugging aid nobody installs an extension for
+dist/**/*.map

@@ -2,10 +2,17 @@
   "name": "agent-monitor",
   "displayName": "Agent Monitor",
   "description": "Watch long-running AI coding sessions while they run, and comment without interrupting them.",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "//publisher": "Placeholder until a Marketplace publisher exists. `vsce package` is happy with any value; `vsce publish` is not, and must not be run before this is the real one.",
   "publisher": "agent-monitor",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KlassenFedor/vscode-agent-monitoring.git"
+  },
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.90.0",
     "node": ">=20.10"
@@ -13,13 +20,22 @@
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "claude code",
+    "codex",
+    "agent",
+    "monitoring",
+    "mcp"
+  ],
   "main": "./dist/extension.cjs",
   "activationEvents": [
     "onStartupFinished"
   ],
   "scripts": {
     "build": "tsc -b && node scripts/bundle.mjs",
-    "bundle": "node scripts/bundle.mjs"
+    "bundle": "node scripts/bundle.mjs",
+    "icon": "node scripts/icon.mjs",
+    "package": "npm run build && vsce package --no-dependencies --out ../../agent-monitor.vsix"
   },
   "contributes": {
     "viewsContainers": {
@@ -93,6 +109,7 @@
   },
   "devDependencies": {
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.23.0"
   }
 }
