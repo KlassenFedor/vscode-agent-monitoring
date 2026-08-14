@@ -49,8 +49,8 @@ export class RecordTooLargeError extends ProtocolError {
 export class LockTimeoutError extends ProtocolError {
   readonly lockPath: string;
 
-  constructor(lockPath: string, timeoutMs: number) {
-    super('E_LOCK_TIMEOUT', `could not acquire lock ${lockPath} within ${timeoutMs}ms`);
+  constructor(lockPath: string, timeoutMs: number, cause?: unknown) {
+    super('E_LOCK_TIMEOUT', `could not acquire lock ${lockPath} within ${timeoutMs}ms`, { cause });
     this.lockPath = lockPath;
   }
 }

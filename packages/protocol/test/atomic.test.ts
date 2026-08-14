@@ -1,13 +1,40 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { readJsonFile, writeFileAtomic, writeJsonAtomic } from '../src/atomic.js';
 import { CorruptFileError } from '../src/errors.js';
 import { makeRoot, writeText } from './helpers.js';
 
 describe('writeJsonAtomic', () => {
+  it('PROTO-04: keeps trying when the rename is refused because a reader has the file', async () => {
+    const file = path.join(await makeRoot(), 'meta.json');
+    await writeJsonAtomic(file, { version: 0 });
+
+    // Windows has no atomic replace-while-open: renaming over a file a reader holds
+    // fails with EPERM. Our own extension is that reader, polling on every refresh,
+    // so the write has to outlast it rather than give up (TESTS.md §7).
+    const rename = vi.spyOn(fs, 'rename');
+    let refusals = 3;
+    rename.mockImplementation(async (...args: Parameters<typeof fs.rename>) => {
+      if (refusals-- > 0) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      rename.mockRestore();
+      return fs.rename(...args);
+    });
+
+    try {
+      await writeJsonAtomic(file, { version: 1 });
+    } finally {
+      rename.mockRestore();
+    }
+
+    expect(await readJsonFile(file)).toEqual({ version: 1 });
+    // Nothing left behind: a temporary file per retry would fill the session directory.
+    const leftovers = (await fs.readdir(path.dirname(file))).filter((name) => name.includes('.tmp-'));
+    expect(leftovers).toEqual([]);
+  });
+
   it('PROTO-04: a concurrent reader never observes a partial file', async () => {
     const file = path.join(await makeRoot(), 'meta.json');
     await writeJsonAtomic(file, { version: 0 });

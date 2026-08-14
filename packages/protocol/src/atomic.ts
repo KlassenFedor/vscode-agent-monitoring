@@ -61,18 +61,24 @@ export async function readJsonFile(filePath: string): Promise<unknown | null> {
 }
 
 /**
- * On Windows an antivirus scanner or an indexer can hold a freshly closed file open
- * for a few milliseconds, which surfaces as EPERM/EBUSY on rename. Retrying briefly
- * is the standard workaround; failing here would lose a session's metadata.
+ * On Windows, renaming over a file somebody has open fails with EPERM or EBUSY —
+ * there is no atomic replace-while-open the way POSIX has one. Our own readers are
+ * exactly that somebody: the extension re-reads `meta.json` on every refresh, and a
+ * scanner or indexer can hold a freshly closed file for a few milliseconds too.
+ *
+ * So the retry window has to outlast a reader, not just a scanner. Reads are short;
+ * a second of retries covers a busy poller, and the caller is holding the file lock
+ * throughout, so nothing else is queueing behind this write (measured against CI:
+ * five attempts over 100ms lost the race, TESTS.md §7).
  */
-async function renameWithRetry(from: string, to: string, attempts = 5): Promise<void> {
+async function renameWithRetry(from: string, to: string, attempts = 12): Promise<void> {
   for (let attempt = 1; ; attempt += 1) {
     try {
       await fs.rename(from, to);
       return;
     } catch (error) {
       if (attempt >= attempts || !isErrno(error, 'EPERM', 'EACCES', 'EBUSY')) throw error;
-      await sleep(attempt * 10);
+      await sleep(Math.min(attempt * 25, 200));
     }
   }
 }

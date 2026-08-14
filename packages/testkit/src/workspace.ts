@@ -17,6 +17,9 @@ export async function makeWorkspace(prefix = 'agent-monitor-'): Promise<TempWork
   const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   return {
     root,
-    cleanup: () => fs.rm(root, { recursive: true, force: true }),
+    // Retries are for Windows: a file another process has just released is briefly
+    // still there as far as `rmdir` is concerned, and the cleanup of a test that
+    // spawned workers would otherwise fail with ENOTEMPTY on a directory it emptied.
+    cleanup: () => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }),
   };
 }

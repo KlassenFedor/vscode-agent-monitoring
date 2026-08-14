@@ -302,20 +302,27 @@ describe('set_status', () => {
 });
 
 describe('failure handling', () => {
-  it('MCP-13: reports a write failure as a tool result instead of throwing', async () => {
-    const { runtime, root } = await makeHarness();
-    await fs.mkdir(path.join(root, '.agent-monitor'), { recursive: true });
-    await fs.chmod(path.join(root, '.agent-monitor'), 0o500);
+  // POSIX only: `chmod` on Windows moves one read-only bit and does not stop writes
+  // inside a directory, so there is no failure to report and the test would assert
+  // nothing. The behaviour under test is platform-independent; the way of provoking
+  // it is not (TESTS.md §7).
+  it.skipIf(process.platform === 'win32')(
+    'MCP-13: reports a write failure as a tool result instead of throwing',
+    async () => {
+      const { runtime, root } = await makeHarness();
+      await fs.mkdir(path.join(root, '.agent-monitor'), { recursive: true });
+      await fs.chmod(path.join(root, '.agent-monitor'), 0o500);
 
-    try {
-      const result = await runtime.reportProgress({ title: 'milestone' });
+      try {
+        const result = await runtime.reportProgress({ title: 'milestone' });
 
-      expect(result.isError).toBe(true);
-      expect(result.text).toContain('Continue with your task');
-    } finally {
-      await fs.chmod(path.join(root, '.agent-monitor'), 0o700);
-    }
-  });
+        expect(result.isError).toBe(true);
+        expect(result.text).toContain('Continue with your task');
+      } finally {
+        await fs.chmod(path.join(root, '.agent-monitor'), 0o700);
+      }
+    },
+  );
 
   it('MCP-14: two sessions in one workspace do not see each other', async () => {
     const first = await makeHarness();

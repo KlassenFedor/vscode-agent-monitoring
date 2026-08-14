@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { LockTimeoutError } from '../src/errors.js';
 import { readJsonl } from '../src/jsonl.js';
@@ -102,6 +102,74 @@ describe('withFileLock', () => {
     await expect(
       withFileLock(lock, () => 'unreachable', { timeoutMs: 80, retryMs: 5, staleMs: 60_000 }),
     ).rejects.toThrow(LockTimeoutError);
+  });
+
+  it('PROTO-49: waits out a lock file Windows reports as EPERM rather than failing', async () => {
+    const root = await makeRoot();
+    const lock = path.join(root, 'x.lock');
+
+    // What Windows does when a file is deleted while somebody still has it open: the
+    // file is neither there nor gone, and every `open` answers EPERM until the last
+    // handle closes. Reproduced here because the platform that does it is not the
+    // platform this suite runs on (TESTS.md §7).
+    const open = vi.spyOn(fs, 'open');
+    let refusals = 2;
+    open.mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      if (refusals-- > 0) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      open.mockRestore();
+      return fs.open(...args);
+    });
+
+    try {
+      await expect(withFileLock(lock, () => 'acquired', { timeoutMs: 2_000, retryMs: 5 })).resolves.toBe(
+        'acquired',
+      );
+      expect(refusals).toBeLessThanOrEqual(0);
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it('PROTO-49: a lock the deadline never clears still fails as a timeout', async () => {
+    const root = await makeRoot();
+    const lock = path.join(root, 'x.lock');
+
+    const open = vi.spyOn(fs, 'open').mockImplementation(async () => {
+      throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    });
+
+    try {
+      // The caller gets the error that says what to do about it — somebody else holds
+      // this lock — rather than a raw errno from a syscall it never made.
+      await expect(withFileLock(lock, () => 'unreachable', { timeoutMs: 60, retryMs: 5 })).rejects.toThrow(
+        LockTimeoutError,
+      );
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it('PROTO-49: releases a lock even when the first unlink is refused', async () => {
+    const root = await makeRoot();
+    const lock = path.join(root, 'x.lock');
+
+    const unlink = vi.spyOn(fs, 'unlink');
+    let refusals = 2;
+    unlink.mockImplementation(async (...args: Parameters<typeof fs.unlink>) => {
+      if (refusals-- > 0) throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      unlink.mockRestore();
+      return fs.unlink(...args);
+    });
+
+    try {
+      await withFileLock(lock, () => 'done');
+    } finally {
+      unlink.mockRestore();
+    }
+
+    // A lock this process could not delete is a lock everyone else must wait thirty
+    // seconds to declare stale, so giving up on the first refusal is not an option.
+    await expect(fs.stat(lock)).rejects.toThrow();
   });
 
   it('breaks a lock left behind by a dead process', async () => {

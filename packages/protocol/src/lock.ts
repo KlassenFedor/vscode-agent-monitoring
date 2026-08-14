@@ -98,6 +98,20 @@ async function acquire(
         await ensureDir(path.dirname(lockPath));
         continue;
       }
+
+      if (isErrno(error, 'EPERM', 'EACCES')) {
+        // Windows only, and only under contention: deleting a file whose handle is
+        // still open leaves it in a "delete pending" state, where every open fails
+        // with EPERM until the last handle closes. It is the same situation EEXIST
+        // describes — somebody else has the lock — but the file cannot be read, so
+        // the holder and staleness checks below have nothing to work with. Waiting is
+        // the whole fix; if it never clears, the deadline turns it into a timeout
+        // rather than an error nobody can act on.
+        if (Date.now() >= ctx.deadline) throw new LockTimeoutError(lockPath, ctx.timeoutMs, error);
+        await sleep(ctx.retryMs + Math.floor(Math.random() * ctx.retryMs));
+        continue;
+      }
+
       if (!isErrno(error, 'EEXIST')) throw error;
 
       // A killed agent leaves its lock behind. Waiting out the staleness timeout

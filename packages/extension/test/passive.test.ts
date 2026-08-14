@@ -36,8 +36,13 @@ async function makePassiveHarness(): Promise<PassiveHarness> {
   const home = homeWorkspace.root;
   const clock = createManualClock(NOW);
 
+  // The placeholder sits inside a JSON string, and on Windows the root is full of
+  // backslashes: pasting it in raw produces `"C:\Users\..."`, which is not valid JSON,
+  // and every record in the fixture is silently skipped.
+  const jsonSafeRoot = JSON.stringify(root).slice(1, -1);
+
   const install = async (source: string, target: string): Promise<string> => {
-    const content = (await fs.readFile(source, 'utf8')).replaceAll('__CWD__', root);
+    const content = (await fs.readFile(source, 'utf8')).replaceAll('__CWD__', jsonSafeRoot);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, content, 'utf8');
     return target;
