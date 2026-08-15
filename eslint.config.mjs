@@ -12,12 +12,14 @@ import tseslint from 'typescript-eslint';
  */
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/out/**', 'coverage/**', 'docs-local/**', '**/*.d.ts'],
+    // `.vscode-test/` holds a downloaded VS Code — tens of thousands of files with
+    // their own tsconfigs, which the type-aware parser tries to adopt as roots.
+    ignores: ['**/dist/**', '**/out/**', '**/.vscode-test/**', 'coverage/**', 'docs-local/**', '**/*.d.ts'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['packages/*/src/**/*.ts', 'packages/*/test/**/*.ts'],
+    files: ['packages/*/src/**/*.ts', 'packages/*/test/**/*.ts', 'packages/*/test-host/**/*.ts'],
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',

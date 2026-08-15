@@ -18,5 +18,8 @@
       "@agent-monitor/hook": ["./packages/hook/src/index.ts"]
     }
   },
-  "include": ["packages/*/test/**/*.ts", "vitest.config.ts"]
+  "include": ["packages/*/test/**/*.ts", "vitest.config.ts"],
+  // The host tests compile under their own config: they are CommonJS and Mocha, not
+  // ESM and vitest, and typing them here would apply the wrong globals.
+  "exclude": ["packages/extension/test-host/**"]
 }

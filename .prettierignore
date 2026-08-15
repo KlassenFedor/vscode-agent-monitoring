@@ -1,5 +1,6 @@
 dist/
 out/
+.vscode-test/
 coverage/
 node_modules/
 package-lock.json

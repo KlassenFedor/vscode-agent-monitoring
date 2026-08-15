@@ -46,6 +46,23 @@ jobs:
 
       - run: npm test
 
+  # Separate job on purpose: this one downloads and starts a real VS Code, so it costs
+  # minutes where the rest of the suite costs seconds. Putting it in the main run would
+  # make the fast feedback everybody actually waits for as slow as the slowest thing.
+  host:
+    name: vscode host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      # Electron needs a display. Locally under WSLg there is a real one; on a CI
+      # runner there is not, and xvfb is the whole reason this job is Linux-only.
+      - run: xvfb-run -a npm run test:host --workspace=agent-monitor
+
   coverage:
     name: coverage (protocol)
     runs-on: ubuntu-latest

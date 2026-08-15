@@ -1,0 +1,19 @@
+{
+  // The VS Code extension host injects `vscode` through a patched `require`, so an ESM
+  // `import` of it cannot resolve: host tests have to be CommonJS, unlike everything
+  // else in this repository. `out/host/package.json` carries the marker that says so.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "test-host",
+    "outDir": "out/host",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "verbatimModuleSyntax": false,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node", "vscode", "mocha"],
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["test-host/**/*"]
+}

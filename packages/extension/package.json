@@ -35,7 +35,8 @@
     "build": "tsc -b && node scripts/bundle.mjs",
     "bundle": "node scripts/bundle.mjs",
     "icon": "node scripts/icon.mjs",
-    "package": "npm run build && vsce package --no-dependencies --out ../../agent-monitor.vsix"
+    "package": "npm run build && vsce package --no-dependencies --out ../../agent-monitor.vsix",
+    "test:host": "npm run build && node scripts/host-setup.mjs && tsc -p tsconfig.host.json && vscode-test"
   },
   "contributes": {
     "viewsContainers": {
@@ -167,8 +168,12 @@
     "@agent-monitor/protocol": "0.0.0"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/vscode": "^1.90.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.23.0"
+    "esbuild": "^0.23.0",
+    "mocha": "^10.8.2"
   }
 }

@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc -b --pretty && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -b --pretty && tsc -p tsconfig.test.json && tsc -p packages/extension/tsconfig.host.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:proto": "vitest run packages/protocol"

@@ -7,6 +7,9 @@
 
 src/**
 test/**
+test-host/**
+.vscode-test/**
+.vscode-test.mjs
 scripts/**
 tsconfig*.json
 *.tsbuildinfo
