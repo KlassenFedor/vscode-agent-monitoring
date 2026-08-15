@@ -569,3 +569,52 @@ describe('PASV-13: the transcript as a timeline, not a single reading', () => {
     expect(after.at(-1)?.text).toBe('One more thing.');
   });
 });
+
+describe('PASV-14: a cut line says it was cut', () => {
+  it('ends a long message with an ellipsis instead of mid-word', () => {
+    // A hard slice made the agent look like it stopped mid-sentence, with nothing to
+    // tell "it wrote that much" from "we cut it here".
+    const parser = new CodexTranscriptParser();
+    parser.applyAll([
+      {
+        timestamp: '2026-08-13T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'agent_message', message: 'x'.repeat(900) },
+      },
+    ]);
+
+    const [entry] = parser.result().entries;
+    expect(entry?.text).toHaveLength(400);
+    expect(entry?.text.endsWith('…')).toBe(true);
+  });
+
+  it('leaves a message that fits exactly as it is', () => {
+    const parser = new CodexTranscriptParser();
+    parser.applyAll([
+      {
+        timestamp: '2026-08-13T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'agent_message', message: 'short enough' },
+      },
+    ]);
+
+    expect(parser.result().entries[0]?.text).toBe('short enough');
+  });
+
+  it('numbers entries so a trimmed list keeps its identities', () => {
+    // The ordinal is what a row on screen is keyed by: an index would shift under every
+    // trim and repaint the whole timeline.
+    const parser = new CodexTranscriptParser();
+    parser.applyAll(
+      Array.from({ length: 205 }, (_, index) => ({
+        timestamp: '2026-08-13T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'agent_message', message: `line ${index}` },
+      })),
+    );
+
+    const entries = parser.result().entries;
+    expect(entries[0]?.ordinal).toBe(6);
+    expect(entries.at(-1)?.ordinal).toBe(205);
+  });
+});

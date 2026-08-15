@@ -18,11 +18,6 @@ Status: early development. The protocol layer is the only package with a stable 
 | `docs/`               | Versioned documentation for users of the extension.                                                |
 | `docs-local/`         | Git-ignored: architecture and test specs (`DESIGN.md`, `TESTS.md`), personal notes, captured logs. |
 
-## Conventions
-
-- Code, comments, docstrings, commit messages and public documentation are in English.
-- Developer-only documentation under `docs-local/` may be written in Russian.
-
 ## Development
 
 ```bash

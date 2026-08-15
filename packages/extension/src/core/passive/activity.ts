@@ -8,6 +8,14 @@ import type { AgentKind } from '@agent-monitor/protocol';
  * it with the latest line loses everything the human might want to comment on.
  */
 export interface PassiveEntry {
+  /**
+   * Position in the transcript, counted from the first record ever read.
+   *
+   * Never reused and never renumbered, which is what makes it usable as the identity
+   * of a row on screen: the list is capped and drops entries off the front, so an index
+   * into it would shift under every trim and redraw the whole timeline.
+   */
+  ordinal: number;
   /** Timestamp of the transcript record, when it carried one. */
   ts: string | null;
   kind: 'message' | 'tool';
@@ -65,6 +73,7 @@ export abstract class ActivityParser {
   protected readonly activity: PassiveActivity;
   readonly #changed = new Set<string>();
   readonly #entries: PassiveEntry[] = [];
+  #ordinal = 0;
 
   constructor(agent: AgentKind) {
     this.activity = { ...EMPTY_ACTIVITY, agent, changedFiles: [], entries: [] };
@@ -116,7 +125,7 @@ export abstract class ActivityParser {
     if (typeof value !== 'string') return;
     const text = value.trim();
     if (text === '') return;
-    this.activity.lastMessage = text.slice(0, MAX_MESSAGE_CHARS);
+    this.activity.lastMessage = truncate(text, MAX_MESSAGE_CHARS);
     this.#record('message', this.activity.lastMessage);
   }
 
@@ -145,7 +154,8 @@ export abstract class ActivityParser {
     const last = this.#entries.at(-1);
     if (last?.kind === kind && last.text === text) return;
 
-    this.#entries.push({ ts: this.activity.lastActivityAt, kind, text });
+    this.#ordinal += 1;
+    this.#entries.push({ ordinal: this.#ordinal, ts: this.activity.lastActivityAt, kind, text });
     if (this.#entries.length > MAX_ENTRIES) this.#entries.splice(0, this.#entries.length - MAX_ENTRIES);
   }
 }
@@ -160,7 +170,18 @@ function describeTool(name: string, input: unknown): string {
     : target;
   if (typeof rendered !== 'string' || rendered.trim() === '') return name;
 
-  return `${name}: ${rendered.trim()}`.slice(0, MAX_TOOL_CHARS);
+  return truncate(`${name}: ${rendered.trim()}`, MAX_TOOL_CHARS);
+}
+
+/**
+ * Cut long text, and say so.
+ *
+ * A hard slice left the agent ending mid-sentence with nothing to distinguish "it
+ * wrote that much" from "we cut it here", which reads as a confused agent rather than
+ * a truncated line.
+ */
+function truncate(text: string, limit: number): string {
+  return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}…`;
 }
 
 const WRITING_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit', 'apply_patch']);

@@ -3,7 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { openKindFor } from '../src/core/artifacts.js';
 import type { SessionView } from '../src/core/model.js';
 import { planNotification } from '../src/core/notify.js';
-import { escapeHtml, renderSession, renderUpdate } from '../src/core/render.js';
+import {
+  DEFAULT_STOP_REASON,
+  diffRows,
+  escapeHtml,
+  formatTime,
+  renderRows,
+  renderSession,
+  renderUpdate,
+} from '../src/core/render.js';
 
 function view(overrides: Partial<SessionView> = {}): SessionView {
   return {
@@ -23,6 +31,22 @@ function view(overrides: Partial<SessionView> = {}): SessionView {
 
 const options = { nonce: 'test-nonce', cspSource: 'vscode-webview://x' };
 
+/** The timeline as one string, for the assertions that only care about content. */
+function timelineOf(update: ReturnType<typeof renderUpdate>): string {
+  return renderRows(update.rows);
+}
+
+function pulseEntry(
+  ordinal: number,
+  ts: string | null,
+  kind: 'message' | 'tool',
+  text: string,
+): { ordinal: number; ts: string | null; kind: 'message' | 'tool'; text: string } {
+  return { ordinal, ts, kind, text };
+}
+
+const TRANSCRIPT = '/home/u/.claude/projects/-work/session.jsonl';
+
 describe('EXT-20: a panel is written once and patched afterwards', () => {
   const withEvent = view({
     events: [
@@ -38,7 +62,7 @@ describe('EXT-20: a panel is written once and patched afterwards', () => {
   it('offers every changing part of the page as a fragment', () => {
     const update = renderUpdate(withEvent);
 
-    expect(update.timeline).toContain('Parser split into three modules');
+    expect(timelineOf(update)).toContain('Parser split into three modules');
     expect(update.meta).toContain('working');
     expect(update.question).toBe('');
   });
@@ -52,49 +76,316 @@ describe('EXT-20: a panel is written once and patched afterwards', () => {
     for (const id of ['session-title', 'session-meta', 'question-slot', 'timeline']) {
       expect(html).toContain(`id="${id}"`);
     }
-    expect(html).toContain(update.timeline);
+    expect(html).toContain(timelineOf(update));
     expect(html).toContain(update.meta);
   });
 
   it('keeps the composer out of what gets replaced', () => {
     // The bug this exists for: rewriting the document once a second closed the kind
-    // dropdown and emptied the comment box while the human was still using them.
+    // dropdown and emptied a comment the human was halfway through typing.
     const update = renderUpdate(withEvent);
 
-    for (const fragment of [update.timeline, update.meta, update.question]) {
+    for (const fragment of [update.meta, update.question, timelineOf(update)]) {
       expect(fragment).not.toContain('id="comment"');
       expect(fragment).not.toContain('id="kind"');
+      expect(fragment).not.toContain('id="send"');
     }
   });
 
-  it('escapes agent output in the fragments too, not only in the document', () => {
+  it('gives every row a key that survives a refresh', () => {
     const update = renderUpdate(
       view({
-        events: [
-          {
-            seq: 1,
-            ts: '2026-08-13T10:00:00.000Z',
-            type: 'question',
-            title: '<img src=x onerror=alert(1)>',
-            options: ['" onclick="alert(2)'],
-            needs_answer: true,
-          },
-        ],
-        waitingQuestion: {
-          seq: 1,
-          ts: '2026-08-13T10:00:00.000Z',
-          type: 'question',
-          title: '<img src=x onerror=alert(1)>',
-          options: ['" onclick="alert(2)'],
-          needs_answer: true,
-        },
+        events: withEvent.events,
+        comments: [{ seq: 1, ts: '2026-08-13T10:00:05.000Z', kind: 'steer', text: 'careful' }],
       }),
     );
 
-    expect(update.timeline).not.toContain('<img src=x');
-    expect(update.question).not.toContain('<img src=x');
-    expect(update.question).not.toContain('" onclick="alert(2)"');
-    expect(update.question).toContain('&quot; onclick=&quot;alert(2)');
+    expect(update.rows.map((row) => row.key)).toEqual(['event:1', 'comment:1']);
+    expect(renderRows(update.rows)).toContain('data-key="event:1"');
+  });
+});
+
+describe('EXT-25: a refresh redraws only what changed', () => {
+  const first = renderUpdate(
+    view({
+      events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' }],
+    }),
+  );
+
+  it('leaves an untouched row out of the patch', () => {
+    // This is what the human's text selection rides on: a row nobody touched keeps its
+    // DOM node. Replacing the whole timeline once a second made copying anything out of
+    // the panel impossible.
+    const second = renderUpdate(
+      view({
+        events: [
+          { seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' },
+          { seq: 2, ts: '2026-08-13T10:00:20.000Z', type: 'progress', title: 'second milestone' },
+        ],
+      }),
+    );
+
+    const diff = diffRows(first.rows, second.rows);
+
+    expect(diff.order).toEqual(['event:1', 'event:2']);
+    expect(diff.changed.map((row) => row.key)).toEqual(['event:2']);
+  });
+
+  it('patches a row whose content moved', () => {
+    // A delivered comment changes the report it hangs under, and that one row alone.
+    const withReply = view({
+      events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' }],
+      comments: [{ seq: 1, ts: '2026-08-13T10:00:05.000Z', kind: 'steer', text: 'careful', reply_to: 1 }],
+    });
+
+    const undelivered = renderUpdate(withReply);
+    const delivered = renderUpdate({ ...withReply, cursorSeq: 1 });
+    const diff = diffRows(undelivered.rows, delivered.rows);
+
+    expect(diff.changed.map((row) => row.key)).toEqual(['event:1']);
+  });
+
+  it('reports nothing to change when nothing changed', () => {
+    expect(diffRows(first.rows, first.rows).changed).toEqual([]);
+  });
+
+  it('drops a row that is gone from the order', () => {
+    const empty = renderUpdate(view());
+    const diff = diffRows(first.rows, empty.rows);
+
+    expect(diff.order).toEqual(['empty']);
+    expect(diff.order).not.toContain('event:1');
+  });
+
+  it('keys a transcript line by its ordinal, so trimming the list does not redraw it', () => {
+    // The list is capped at 200 and drops entries off the front; an index into it would
+    // shift under every trim and repaint the whole column.
+    const pulse = {
+      currentTool: null,
+      stale: false,
+      transcriptPath: TRANSCRIPT,
+      entries: [
+        pulseEntry(7, '2026-08-13T10:00:00.000Z', 'message', 'still here'),
+        pulseEntry(8, '2026-08-13T10:00:10.000Z', 'message', 'newest'),
+      ],
+    };
+    const before = renderUpdate(view(), { ...pulse, entries: [pulse.entries[0] as never] });
+    const after = renderUpdate(view(), pulse);
+
+    expect(diffRows(before.rows, after.rows).changed.map((row) => row.key)).toEqual(['pulse:8']);
+  });
+});
+
+describe("EXT-26: times are the reader's own", () => {
+  it('shifts a UTC record onto the local clock', () => {
+    // It printed `toISOString()`, so every time in the panel was off by the reader's
+    // offset, silently and with no way to tell.
+    expect(formatTime('2026-08-13T22:30:05.000Z', 180)).toBe('01:30:05');
+    expect(formatTime('2026-08-13T22:30:05.000Z', -300)).toBe('17:30:05');
+    expect(formatTime('2026-08-13T22:30:05.000Z', 0)).toBe('22:30:05');
+  });
+
+  it('hands back an unparsable stamp untouched rather than inventing one', () => {
+    expect(formatTime('not a time')).toBe('not a time');
+  });
+
+  it('stamps a reply inside a report, where the delay is visible', () => {
+    const timeline = timelineOf(
+      renderUpdate(
+        view({
+          events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'milestone' }],
+          comments: [{ seq: 1, ts: '2026-08-13T10:04:00.000Z', kind: 'steer', text: 'careful', reply_to: 1 }],
+        }),
+      ),
+    );
+
+    expect(timeline).toContain('datetime="2026-08-13T10:04:00.000Z"');
+  });
+});
+
+describe('EXT-27: a comment says whether the agent has seen it', () => {
+  const commented = view({
+    events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'milestone' }],
+    comments: [
+      { seq: 1, ts: '2026-08-13T10:00:05.000Z', kind: 'steer', text: 'read me', reply_to: 1 },
+      { seq: 2, ts: '2026-08-13T10:00:06.000Z', kind: 'fyi', text: 'not yet' },
+    ],
+  });
+
+  it('separates delivered from waiting', () => {
+    // "The agent read it and ignored me" and "it never arrived" used to look identical,
+    // and they are different problems fixed in different places (DESIGN.md §10).
+    const timeline = timelineOf(renderUpdate({ ...commented, cursorSeq: 1 }));
+
+    expect(timeline).toContain('>delivered<');
+    expect(timeline).toContain('>not delivered yet<');
+  });
+
+  it('calls everything undelivered while the cursor is at zero', () => {
+    const timeline = timelineOf(renderUpdate(commented));
+
+    expect(timeline).not.toContain('>delivered<');
+    expect(timeline.match(/>not delivered yet</g)).toHaveLength(2);
+  });
+});
+
+describe('EXT-28: stopping the agent is an action, not a kind of remark', () => {
+  it('keeps stop out of the list of what a comment is', () => {
+    // The list answers "what am I telling you"; a button answers "what are you doing".
+    const html = renderSession(view(), options);
+    const select = html.slice(html.indexOf('<select id="kind"'), html.indexOf('</select>'));
+
+    expect(select).toContain('value="steer"');
+    expect(select).toContain('value="fyi"');
+    expect(select).not.toContain('value="stop"');
+    expect(html).toContain('id="stop"');
+  });
+
+  it('carries a reason for a stop sent with an empty box', () => {
+    // The schema wants non-empty text, so stopping without typing anything was
+    // impossible; an empty string tells the agent nothing anyway.
+    const html = renderSession(view(), options);
+
+    expect(DEFAULT_STOP_REASON).not.toBe('');
+    expect(html).toContain(JSON.stringify(DEFAULT_STOP_REASON));
+  });
+
+  it('says on the button that carrying on happens elsewhere', () => {
+    // A blocked agent ends its turn and waits on its own terminal; hooks stop running,
+    // so nothing written to the session reaches it. There is no "carry on" button to
+    // pair with this one (docs-local/live/FINDINGS.md §1).
+    expect(renderSession(view(), options)).toContain('terminal it runs in');
+  });
+
+  it('explains what each kind does to the plan', () => {
+    const html = renderSession(view(), options);
+
+    expect(html).toContain('Overrides the plan');
+    expect(html).toContain('not expected to change');
+  });
+});
+
+describe('EXT-21: an agent that publishes nothing still gets a timeline', () => {
+  const pulse = {
+    currentTool: 'shell',
+    stale: false,
+    transcriptPath: TRANSCRIPT,
+    entries: [
+      pulseEntry(1, '2026-08-13T10:00:00.000Z', 'message', 'Reading the parser tests'),
+      pulseEntry(2, '2026-08-13T10:00:05.000Z', 'tool', 'shell: pytest -q'),
+      pulseEntry(3, '2026-08-13T10:00:20.000Z', 'message', 'Three tests are red, fixing'),
+    ],
+  };
+
+  it('draws every transcript line as its own row, oldest first', () => {
+    const update = renderUpdate(view(), pulse);
+
+    expect(update.rows.map((row) => row.key)).toEqual(['pulse:1', 'pulse:2', 'pulse:3']);
+    expect(timelineOf(update)).toContain('shell: pytest -q');
+  });
+
+  it('offers a comment button on what the agent said, but not on a tool call', () => {
+    const timeline = timelineOf(renderUpdate(view(), pulse));
+
+    expect(timeline.match(/class="reply-after"/g)).toHaveLength(2);
+    expect(timeline).not.toContain('data-after="shell: pytest -q"');
+  });
+
+  it('keeps the heading as the session name, not a copy of the newest line', () => {
+    // The heading and the top row said the same thing when the pulse was one field.
+    const update = renderUpdate(view(), pulse);
+
+    expect(update.title).toBe('agent session sess-1');
+    expect(update.meta).toContain('running shell');
+  });
+
+  it('offers the transcript, which is where the untruncated text lives', () => {
+    expect(renderUpdate(view(), pulse).meta).toContain(TRANSCRIPT);
+  });
+
+  it('takes staleness from the transcript, which is the one that knows', () => {
+    const quiet = view({ stale: true });
+
+    expect(renderUpdate(quiet, pulse).meta).not.toContain('no activity');
+    expect(renderUpdate(quiet, { ...pulse, stale: true }).meta).toContain('no activity');
+  });
+
+  it('EXT-13: escapes the transcript like everything else the agent wrote', () => {
+    const hostile = {
+      currentTool: '<img src=x>',
+      stale: false,
+      transcriptPath: '"><script>alert(2)</script>',
+      entries: [pulseEntry(1, null, 'message', '<script>alert(1)</script>')],
+    };
+    const update = renderUpdate(view(), hostile);
+
+    expect(update.meta).not.toContain('<img');
+    expect(update.meta).not.toContain('<script>');
+    expect(timelineOf(update)).not.toContain('<script>');
+    expect(renderSession(view(), options, hostile)).not.toContain('<script>alert(1)</script>');
+  });
+
+  it('stands down once real reports arrive rather than doubling them', () => {
+    const reported = view({
+      events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' }],
+    });
+    const update = renderUpdate(reported, pulse);
+
+    expect(update.meta).not.toContain('running shell');
+    expect(timelineOf(update)).not.toContain('Reading the parser tests');
+    expect(timelineOf(update)).toContain('first milestone');
+  });
+});
+
+describe('EXT-22: a comment addressed to nothing is still visible', () => {
+  const comment = (overrides = {}) => ({
+    seq: 1,
+    ts: '2026-08-13T10:00:10.000Z',
+    kind: 'steer' as const,
+    text: 'do not touch legacy/',
+    ...overrides,
+  });
+
+  it('gives it a row of its own, in the order it was written', () => {
+    // Written into the box at the bottom, it has no report to sit under, and used to
+    // be visible nowhere at all: "what have I already told it" was unanswerable.
+    const update = renderUpdate(
+      view({
+        events: [
+          { seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' },
+          { seq: 2, ts: '2026-08-13T10:00:20.000Z', type: 'progress', title: 'second milestone' },
+        ],
+        comments: [comment()],
+      }),
+    );
+
+    expect(update.rows.map((row) => row.key)).toEqual(['event:1', 'comment:1', 'event:2']);
+  });
+
+  it('leaves a comment addressed to a report inside that report', () => {
+    const update = renderUpdate(
+      view({
+        events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' }],
+        comments: [comment({ reply_to: 1 })],
+      }),
+    );
+
+    expect(update.rows.map((row) => row.key)).toEqual(['event:1']);
+    expect(timelineOf(update)).toContain('do not touch legacy/');
+  });
+
+  it('sits between the transcript lines it was written between', () => {
+    const update = renderUpdate(view({ comments: [comment()] }), {
+      currentTool: null,
+      stale: false,
+      transcriptPath: TRANSCRIPT,
+      entries: [
+        pulseEntry(1, '2026-08-13T10:00:00.000Z', 'message', 'starting on the parser'),
+        pulseEntry(2, '2026-08-13T10:00:20.000Z', 'message', 'parser done'),
+      ],
+    });
+
+    expect(update.rows.map((row) => row.key)).toEqual(['pulse:1', 'comment:1', 'pulse:2']);
   });
 });
 
@@ -261,139 +552,6 @@ describe('EXT-06: when to interrupt the human', () => {
     const previous = view({ events });
 
     expect(planNotification(view({ events }), previous).level).toBe('none');
-  });
-});
-
-describe('EXT-21: an agent that publishes nothing still gets a timeline', () => {
-  const pulse = {
-    currentTool: 'shell',
-    stale: false,
-    entries: [
-      { ts: '2026-08-13T10:00:00.000Z', kind: 'message' as const, text: 'Reading the parser tests' },
-      { ts: '2026-08-13T10:00:05.000Z', kind: 'tool' as const, text: 'shell: pytest -q' },
-      { ts: '2026-08-13T10:00:20.000Z', kind: 'message' as const, text: 'Three tests are red, fixing' },
-    ],
-  };
-
-  it('draws every transcript line as its own row, oldest first', () => {
-    const timeline = renderUpdate(view(), pulse).timeline;
-
-    expect(timeline).toContain('Reading the parser tests');
-    expect(timeline).toContain('shell: pytest -q');
-    expect(timeline).toContain('Three tests are red, fixing');
-    expect(timeline.indexOf('Reading the parser tests')).toBeLessThan(
-      timeline.indexOf('Three tests are red, fixing'),
-    );
-  });
-
-  it('offers a comment button on what the agent said, but not on a tool call', () => {
-    const timeline = renderUpdate(view(), pulse).timeline;
-
-    expect(timeline.match(/class="reply-after"/g)).toHaveLength(2);
-    expect(timeline).not.toContain('data-after="shell: pytest -q"');
-  });
-
-  it('keeps the heading as the session name, not a copy of the newest line', () => {
-    // The heading and the top row said the same thing when the pulse was one field.
-    const update = renderUpdate(view(), pulse);
-
-    expect(update.title).toBe('agent session sess-1');
-    expect(update.meta).toContain('running shell');
-  });
-
-  it('takes staleness from the transcript, which is the one that knows', () => {
-    // Session metadata stops changing the moment the agent stops reporting, so a
-    // working agent would otherwise be marked stale ten minutes in.
-    const quiet = view({ stale: true });
-
-    expect(renderUpdate(quiet, pulse).meta).not.toContain('no activity');
-    expect(renderUpdate(quiet, { ...pulse, stale: true }).meta).toContain('no activity');
-  });
-
-  it('EXT-13: escapes the transcript like everything else the agent wrote', () => {
-    const hostile = {
-      currentTool: '<img src=x>',
-      stale: false,
-      entries: [{ ts: null, kind: 'message' as const, text: '<script>alert(1)</script>' }],
-    };
-    const update = renderUpdate(view(), hostile);
-
-    expect(update.meta).not.toContain('<img');
-    expect(update.timeline).not.toContain('<script>');
-    expect(renderSession(view(), options, hostile)).not.toContain('<script>alert(1)</script>');
-  });
-
-  it('stands down once real reports arrive rather than doubling them', () => {
-    const reported = view({
-      events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' }],
-    });
-    const update = renderUpdate(reported, pulse);
-
-    expect(update.meta).not.toContain('running shell');
-    expect(update.timeline).not.toContain('Reading the parser tests');
-    expect(update.timeline).toContain('first milestone');
-  });
-});
-
-describe('EXT-22: a comment addressed to nothing is still visible', () => {
-  const comment = (overrides = {}) => ({
-    seq: 1,
-    ts: '2026-08-13T10:00:10.000Z',
-    kind: 'steer' as const,
-    text: 'do not touch legacy/',
-    ...overrides,
-  });
-
-  it('gives it a row of its own, in the order it was written', () => {
-    // Written into the box at the bottom, it has no report to sit under, and used to
-    // be visible nowhere at all: "what have I already told it" was unanswerable.
-    const update = renderUpdate(
-      view({
-        events: [
-          { seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' },
-          { seq: 2, ts: '2026-08-13T10:00:20.000Z', type: 'progress', title: 'second milestone' },
-        ],
-        comments: [comment()],
-      }),
-    );
-
-    expect(update.timeline).toContain('comment-standalone');
-    expect(update.timeline.indexOf('do not touch legacy/')).toBeGreaterThan(
-      update.timeline.indexOf('first milestone'),
-    );
-    expect(update.timeline.indexOf('do not touch legacy/')).toBeLessThan(
-      update.timeline.indexOf('second milestone'),
-    );
-  });
-
-  it('leaves a comment addressed to a report inside that report', () => {
-    const update = renderUpdate(
-      view({
-        events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress', title: 'first milestone' }],
-        comments: [comment({ reply_to: 1 })],
-      }),
-    );
-
-    expect(update.timeline).not.toContain('comment-standalone');
-    expect(update.timeline).toContain('do not touch legacy/');
-  });
-
-  it('sits between the transcript lines it was written between', () => {
-    const update = renderUpdate(view({ comments: [comment()] }), {
-      currentTool: null,
-      stale: false,
-      entries: [
-        { ts: '2026-08-13T10:00:00.000Z', kind: 'message' as const, text: 'starting on the parser' },
-        { ts: '2026-08-13T10:00:20.000Z', kind: 'message' as const, text: 'parser done' },
-      ],
-    });
-
-    expect(update.timeline.indexOf('starting on the parser')).toBeLessThan(
-      update.timeline.indexOf('do not touch legacy/'),
-    );
-    expect(update.timeline.indexOf('do not touch legacy/')).toBeLessThan(
-      update.timeline.indexOf('parser done'),
-    );
   });
 });
 

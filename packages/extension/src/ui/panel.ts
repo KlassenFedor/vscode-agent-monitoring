@@ -8,7 +8,7 @@ import { artifactsDir, type CommentKind } from '@agent-monitor/protocol';
 import { openKindFor } from '../core/artifacts.js';
 import type { WorkspaceModel } from '../core/model.js';
 import type { PassiveSessionView } from '../core/passive/tracker.js';
-import { renderSession, renderUpdate } from '../core/render.js';
+import { diffRows, renderSession, renderUpdate, type TimelineRow } from '../core/render.js';
 
 interface WebviewMessage {
   type?: string;
@@ -16,8 +16,18 @@ interface WebviewMessage {
   kind?: string;
   replyTo?: number;
   ref?: string;
+  path?: string;
   /** Identifies the send the panel is waiting on, so a stale reply cannot clear it. */
   token?: string;
+}
+
+/** The parts of an update that are replaced wholesale, as one comparable string. */
+function headerOf(update: { title: string; meta: string; question: string }): string {
+  return JSON.stringify([update.title, update.meta, update.question]);
+}
+
+function sameKeys(previous: readonly TimelineRow[], next: readonly TimelineRow[]): boolean {
+  return previous.length === next.length && previous.every((row, index) => row.key === next[index]?.key);
 }
 
 /**
@@ -30,8 +40,10 @@ export class SessionPanels {
   readonly #panels = new Map<string, vscode.WebviewPanel>();
   /** Panels whose document has been written; the rest of the time they are patched. */
   readonly #written = new Set<string>();
-  /** Last update sent to each panel, so an unchanged session costs no message. */
+  /** Header fragments last sent, so an unchanged session costs no message. */
   readonly #sent = new Map<string, string>();
+  /** Timeline rows the panel is currently showing, keyed for patching. */
+  readonly #rows = new Map<string, TimelineRow[]>();
 
   constructor(
     private readonly model: WorkspaceModel,
@@ -59,6 +71,7 @@ export class SessionPanels {
       this.#panels.delete(sessionId);
       this.#written.delete(sessionId);
       this.#sent.delete(sessionId);
+      this.#rows.delete(sessionId);
     });
     panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
       void this.#handle(sessionId, message);
@@ -79,7 +92,8 @@ export class SessionPanels {
     if (!panel || !session) return;
 
     const pulse = this.pulses().get(sessionId);
-    panel.title = renderUpdate(session, pulse).title;
+    const update = renderUpdate(session, pulse);
+    panel.title = update.title;
 
     // The document is written once. After that only the parts that change are sent
     // over, because assigning `html` again reloads the page — and this runs on every
@@ -95,16 +109,25 @@ export class SessionPanels {
         pulse,
       );
       this.#written.add(sessionId);
-      this.#sent.set(sessionId, JSON.stringify(renderUpdate(session, pulse)));
+      this.#sent.set(sessionId, headerOf(update));
+      this.#rows.set(sessionId, update.rows);
       return;
     }
 
-    const update = renderUpdate(session, pulse);
-    const serialised = JSON.stringify(update);
-    if (this.#sent.get(sessionId) === serialised) return;
+    const rows = diffRows(this.#rows.get(sessionId) ?? [], update.rows);
+    const header = headerOf(update);
+    const sameOrder = sameKeys(this.#rows.get(sessionId) ?? [], update.rows);
+    if (this.#sent.get(sessionId) === header && rows.changed.length === 0 && sameOrder) return;
 
-    this.#sent.set(sessionId, serialised);
-    void panel.webview.postMessage({ type: 'update', ...update });
+    this.#sent.set(sessionId, header);
+    this.#rows.set(sessionId, update.rows);
+    void panel.webview.postMessage({
+      type: 'update',
+      title: update.title,
+      meta: update.meta,
+      question: update.question,
+      ...rows,
+    });
   }
 
   dispose(): void {
@@ -112,11 +135,18 @@ export class SessionPanels {
     this.#panels.clear();
     this.#written.clear();
     this.#sent.clear();
+    this.#rows.clear();
   }
 
   async #handle(sessionId: string, message: WebviewMessage): Promise<void> {
     if (message.type === 'comment' && typeof message.text === 'string') {
       await this.#postComment(sessionId, message);
+      return;
+    }
+
+    // The transcript is the only place the untruncated text of a passive entry exists.
+    if (message.type === 'openTranscript' && typeof message.path === 'string') {
+      await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(message.path));
       return;
     }
 
