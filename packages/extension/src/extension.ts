@@ -7,7 +7,7 @@ import type { CommentKind } from '@agent-monitor/protocol';
 
 import { WorkspaceModel, type SessionView } from './core/model.js';
 import { planNotification, sessionLabel } from './core/notify.js';
-import { visiblePassive } from './core/passive/merge.js';
+import { mergePassive } from './core/passive/merge.js';
 import { PassiveTracker, type KnownTranscript, type PassiveSessionView } from './core/passive/tracker.js';
 import { rotateSessions } from './core/rotate.js';
 import { isSetUp, setupWorkspace } from './core/setup.js';
@@ -26,14 +26,19 @@ export function activate(context: vscode.ExtensionContext): void {
     staleAfterMs: config.get<number>('staleAfterMs') ?? 600_000,
   });
   let passive: PassiveSessionView[] = [];
+  let pulses: ReadonlyMap<string, PassiveSessionView> = new Map();
   const tracker = new PassiveTracker(root, {
     homeDir: os.homedir(),
     staleAfterMs: config.get<number>('staleAfterMs') ?? 600_000,
     onDisabled: (reason) => void vscode.window.showWarningMessage(reason),
   });
 
-  const tree = new SessionTreeProvider(model, () => passive);
-  const panels = new SessionPanels(model);
+  const tree = new SessionTreeProvider(
+    model,
+    () => passive,
+    () => pulses,
+  );
+  const panels = new SessionPanels(model, () => pulses);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'agentMonitor.openSession';
 
@@ -43,7 +48,12 @@ export function activate(context: vscode.ExtensionContext): void {
     const snapshot = await model.refresh();
     // Cheap when nothing has ever been written; switches itself off if the agents'
     // transcript format moves out from under it.
-    passive = visiblePassive(snapshot.sessions, await tracker.refresh(knownTranscripts(snapshot.sessions)));
+    const merged = mergePassive(
+      snapshot.sessions,
+      await tracker.refresh(knownTranscripts(snapshot.sessions)),
+    );
+    passive = merged.visible;
+    pulses = merged.attached;
 
     for (const session of snapshot.sessions) {
       notify(planNotification(session, previous.get(session.id)), panels, model);

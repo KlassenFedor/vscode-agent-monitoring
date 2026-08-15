@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { ClaudeTranscriptParser } from '../src/core/passive/claude.js';
 import { CodexTranscriptParser } from '../src/core/passive/codex.js';
 import { claudeProjectSlug } from '../src/core/passive/slug.js';
-import { visiblePassive } from '../src/core/passive/merge.js';
+import { mergePassive } from '../src/core/passive/merge.js';
 import { PassiveTracker, type PassiveSessionView } from '../src/core/passive/tracker.js';
 import type { SessionView } from '../src/core/model.js';
 import { trackTemp } from './helpers.js';
@@ -380,6 +380,7 @@ describe('showing passive sessions next to reporting ones', () => {
     lastMessage: 'working',
     currentTool: 'Read',
     changedFiles: [],
+    entries: [],
     transcriptPath: '/home/u/.claude/projects/-work/session.jsonl',
     stale: false,
     ...overrides,
@@ -408,26 +409,26 @@ describe('showing passive sessions next to reporting ones', () => {
   });
 
   it('shows a passive session when nothing is being published', () => {
-    expect(visiblePassive([], [passive()])).toHaveLength(1);
+    expect(mergePassive([], [passive()]).visible).toHaveLength(1);
   });
 
   it('hides it once the same agent starts reporting properly', () => {
-    expect(visiblePassive([reporting()], [passive()])).toEqual([]);
+    expect(mergePassive([reporting()], [passive()]).visible).toEqual([]);
   });
 
   it('shows it again after that session finishes', () => {
     const done = reporting({ status: 'done' });
-    expect(visiblePassive([done], [passive()])).toHaveLength(1);
+    expect(mergePassive([done], [passive()]).visible).toHaveLength(1);
   });
 
   it('hides a passive view of a session that is reporting under the same id', () => {
     const same = reporting({ id: 'claude-session-1' });
-    expect(visiblePassive([same], [passive()])).toEqual([]);
+    expect(mergePassive([same], [passive()]).visible).toEqual([]);
   });
 
   it('keeps the other agent visible', () => {
-    const views = visiblePassive([reporting()], [passive({ agent: 'codex', sessionId: 'codex-1' })]);
-    expect(views.map((view) => view.agent)).toEqual(['codex']);
+    const merged = mergePassive([reporting()], [passive({ agent: 'codex', sessionId: 'codex-1' })]);
+    expect(merged.visible.map((view) => view.agent)).toEqual(['codex']);
   });
 
   it('PASV-11: hides a passive view of the transcript a session named as its own', () => {
@@ -442,6 +443,129 @@ describe('showing passive sessions next to reporting ones', () => {
       },
     });
 
-    expect(visiblePassive([done], [passive()])).toEqual([]);
+    expect(mergePassive([done], [passive()]).visible).toEqual([]);
+  });
+
+  it('PASV-12: hands the pulse to the live session it belongs to', () => {
+    // The Codex case: the MCP server registered a session on start, the model has not
+    // called a tool yet, and the rollout is the only thing that knows it is alive.
+    const merged = mergePassive([reporting()], [passive({ currentTool: 'shell' })]);
+
+    expect(merged.visible).toEqual([]);
+    expect(merged.attached.get('sess-1')?.currentTool).toBe('shell');
+  });
+
+  it('PASV-12: hands it to the session that names that exact transcript, not to a sibling', () => {
+    const named = reporting({
+      id: 'named',
+      meta: {
+        ...(reporting().meta as NonNullable<SessionView['meta']>),
+        id: 'named',
+        transcript_path: '/home/u/.claude/projects/-work/session.jsonl',
+      },
+    });
+    const merged = mergePassive([named, reporting()], [passive()]);
+
+    expect(merged.attached.has('sess-1')).toBe(false);
+    expect(merged.attached.get('named')?.transcriptPath).toBe('/home/u/.claude/projects/-work/session.jsonl');
+  });
+
+  it('PASV-12: gives a second transcript its own row rather than a session already spoken for', () => {
+    // Two agents of the same kind, one registered session: guessing which is which
+    // would hide real work, so only the first one is adopted.
+    const merged = mergePassive(
+      [reporting()],
+      [passive(), passive({ sessionId: 'claude-session-2', transcriptPath: '/home/u/other.jsonl' })],
+    );
+
+    expect(merged.attached.size).toBe(1);
+    expect(merged.visible.map((view) => view.transcriptPath)).toEqual(['/home/u/other.jsonl']);
+  });
+});
+
+describe('PASV-13: the transcript as a timeline, not a single reading', () => {
+  it('keeps what a Codex session said and did, in order', async () => {
+    const harness = await makePassiveHarness();
+    await harness.installCodex('2026-08-basic.jsonl');
+
+    const [session] = await harness.tracker().refresh();
+
+    expect(session?.entries.map((entry) => [entry.kind, entry.text])).toEqual([
+      ['message', 'Reading the parser first.'],
+      ['tool', 'shell: bash -lc cat src/parser.ts'],
+      ['tool', `apply_patch: ${harness.root}/src/lexer.ts`],
+      ['message', 'Extracted the lexer. Tests are green.'],
+    ]);
+    expect(session?.entries[0]?.ts).toBe('2026-08-13T10:00:04.000Z');
+  });
+
+  it('keeps the same for Claude Code', async () => {
+    const harness = await makePassiveHarness();
+    await harness.installClaude('2026-08-basic.jsonl');
+
+    const [session] = await harness.tracker().refresh();
+    const kinds = session?.entries.map((entry) => entry.kind) ?? [];
+
+    expect(kinds).toContain('message');
+    expect(kinds).toContain('tool');
+    expect(session?.entries.at(-1)?.text).toBe('Extracted the lexer and the reader. Running the tests next.');
+  });
+
+  it('does not say the same thing twice when Codex announces it twice', () => {
+    // A real rollout carries an assistant message as `event_msg` and again as
+    // `response_item`; a timeline showing both reads as if the agent repeated itself.
+    const parser = new CodexTranscriptParser();
+    parser.applyAll([
+      {
+        timestamp: '2026-08-13T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'agent_message', message: 'Tests are green.' },
+      },
+      {
+        timestamp: '2026-08-13T10:00:00.000Z',
+        type: 'response_item',
+        payload: { type: 'message', role: 'assistant', content: [{ text: 'Tests are green.' }] },
+      },
+    ]);
+
+    expect(parser.result().entries).toHaveLength(1);
+  });
+
+  it('keeps the timeline bounded, dropping the oldest', () => {
+    const parser = new CodexTranscriptParser();
+    parser.applyAll(
+      Array.from({ length: 260 }, (_, index) => ({
+        timestamp: '2026-08-13T10:00:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'agent_message', message: `line ${index}` },
+      })),
+    );
+
+    const entries = parser.result().entries;
+    expect(entries).toHaveLength(200);
+    expect(entries[0]?.text).toBe('line 60');
+    expect(entries.at(-1)?.text).toBe('line 259');
+  });
+
+  it('PASV-05: keeps earlier entries when the transcript grows', async () => {
+    const harness = await makePassiveHarness();
+    const file = await harness.installCodex('2026-08-basic.jsonl');
+    const tracker = harness.tracker();
+
+    const before = (await tracker.refresh())[0]?.entries.length ?? 0;
+    await fs.appendFile(
+      file,
+      `${JSON.stringify({
+        timestamp: '2026-08-13T10:03:00.000Z',
+        type: 'event_msg',
+        payload: { type: 'agent_message', message: 'One more thing.' },
+      })}\n`,
+      'utf8',
+    );
+    const after = (await tracker.refresh())[0]?.entries ?? [];
+
+    expect(after).toHaveLength(before + 1);
+    expect(after[0]?.text).toBe('Reading the parser first.');
+    expect(after.at(-1)?.text).toBe('One more thing.');
   });
 });

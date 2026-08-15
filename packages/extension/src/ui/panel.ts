@@ -7,7 +7,7 @@ import { artifactsDir, type CommentKind } from '@agent-monitor/protocol';
 
 import { openKindFor } from '../core/artifacts.js';
 import type { WorkspaceModel } from '../core/model.js';
-import { sessionLabel } from '../core/notify.js';
+import type { PassiveSessionView } from '../core/passive/tracker.js';
 import { renderSession, renderUpdate } from '../core/render.js';
 
 interface WebviewMessage {
@@ -31,7 +31,11 @@ export class SessionPanels {
   /** Last update sent to each panel, so an unchanged session costs no message. */
   readonly #sent = new Map<string, string>();
 
-  constructor(private readonly model: WorkspaceModel) {}
+  constructor(
+    private readonly model: WorkspaceModel,
+    /** Transcript pulse for sessions that publish nothing, by session id. */
+    private readonly pulses: () => ReadonlyMap<string, PassiveSessionView> = () => new Map(),
+  ) {}
 
   show(sessionId: string): void {
     const existing = this.#panels.get(sessionId);
@@ -44,7 +48,7 @@ export class SessionPanels {
     const session = this.model.session(sessionId);
     const panel = vscode.window.createWebviewPanel(
       'agentMonitor.session',
-      session ? sessionLabel(session) : sessionId,
+      session ? renderUpdate(session, this.pulses().get(sessionId)).title : sessionId,
       vscode.ViewColumn.Beside,
       { enableScripts: true, retainContextWhenHidden: true },
     );
@@ -72,23 +76,28 @@ export class SessionPanels {
     const session = this.model.session(sessionId);
     if (!panel || !session) return;
 
-    panel.title = sessionLabel(session);
+    const pulse = this.pulses().get(sessionId);
+    panel.title = renderUpdate(session, pulse).title;
 
     // The document is written once. After that only the parts that change are sent
     // over, because assigning `html` again reloads the page — and this runs on every
     // refresh, which is once a second while an agent works: it would close an open
     // dropdown and wipe a comment the human was still typing.
     if (!this.#written.has(sessionId)) {
-      panel.webview.html = renderSession(session, {
-        nonce: randomBytes(16).toString('base64'),
-        cspSource: panel.webview.cspSource,
-      });
+      panel.webview.html = renderSession(
+        session,
+        {
+          nonce: randomBytes(16).toString('base64'),
+          cspSource: panel.webview.cspSource,
+        },
+        pulse,
+      );
       this.#written.add(sessionId);
-      this.#sent.set(sessionId, JSON.stringify(renderUpdate(session)));
+      this.#sent.set(sessionId, JSON.stringify(renderUpdate(session, pulse)));
       return;
     }
 
-    const update = renderUpdate(session);
+    const update = renderUpdate(session, pulse);
     const serialised = JSON.stringify(update);
     if (this.#sent.get(sessionId) === serialised) return;
 

@@ -21,6 +21,8 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<Node> {
     private readonly model: WorkspaceModel,
     /** Sessions seen only through the agents' own transcripts, if any. */
     private readonly passiveSessions: () => readonly PassiveSessionView[] = () => [],
+    /** Transcript pulse for registered sessions that publish nothing, by session id. */
+    private readonly pulses: () => ReadonlyMap<string, PassiveSessionView> = () => new Map(),
   ) {}
 
   refresh(): void {
@@ -28,7 +30,7 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<Node> {
   }
 
   getTreeItem(node: Node): vscode.TreeItem {
-    if (node.kind === 'session') return sessionItem(node.session);
+    if (node.kind === 'session') return sessionItem(node.session, this.pulses().get(node.session.id));
     if (node.kind === 'passive') return passiveItem(node.passive);
 
     const item = new vscode.TreeItem(node.event.title, vscode.TreeItemCollapsibleState.None);
@@ -58,20 +60,28 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<Node> {
   }
 }
 
-function sessionItem(session: SessionView): vscode.TreeItem {
+/**
+ * @param pulse What the agent's transcript says it is doing, when it publishes nothing
+ *   itself. A session registered by the MCP server or the hook exists from the first
+ *   second but may stay empty for a long while; without the pulse it would show a
+ *   status, no name, and turn stale while the agent was working normally.
+ */
+function sessionItem(session: SessionView, pulse?: PassiveSessionView): vscode.TreeItem {
   const item = new vscode.TreeItem(
-    sessionLabel(session),
+    labelFor(session, pulse),
     session.events.length === 0
       ? vscode.TreeItemCollapsibleState.None
       : vscode.TreeItemCollapsibleState.Collapsed,
   );
 
+  const stale = pulse ? pulse.stale : session.stale;
   const bits: string[] = [session.status];
   if (session.unread.length > 0) bits.push(`${session.unread.length} unread`);
-  if (session.stale) bits.push('stale');
+  if (session.events.length === 0 && pulse?.currentTool) bits.push(pulse.currentTool);
+  if (stale) bits.push('stale');
 
   item.description = bits.join(' · ');
-  item.iconPath = new vscode.ThemeIcon(iconForSession(session));
+  item.iconPath = new vscode.ThemeIcon(iconForSession(session, stale));
   item.contextValue = 'agentMonitor.session';
   item.command = {
     command: 'agentMonitor.openSession',
@@ -110,11 +120,22 @@ function passiveItem(passive: PassiveSessionView): vscode.TreeItem {
   return item;
 }
 
-function iconForSession(session: SessionView): string {
+/**
+ * A session nobody has named is listed as "codex session codex-20" — true and useless.
+ * Until a report or `set_status` supplies a title, the last thing the agent said is a
+ * better name than its id.
+ */
+function labelFor(session: SessionView, pulse?: PassiveSessionView): string {
+  const title = session.meta?.title;
+  if (typeof title === 'string' && title.trim() !== '') return title;
+  return pulse?.lastMessage ?? sessionLabel(session);
+}
+
+function iconForSession(session: SessionView, stale: boolean): string {
   if (session.waitingQuestion) return 'question';
   if (session.status === 'done') return 'pass';
   if (session.status === 'error') return 'error';
-  if (session.stale) return 'warning';
+  if (stale) return 'warning';
   return 'pulse';
 }
 

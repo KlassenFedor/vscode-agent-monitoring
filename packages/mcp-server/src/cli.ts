@@ -22,11 +22,27 @@ async function main(): Promise<void> {
     authoritative: !context.generated,
   });
 
-  const { server } = createServer({
+  const { server, runtime } = createServer({
     root: context.root,
     sessionId: claim.session_id,
     agent: context.agent,
     cwd: context.cwd,
+  });
+
+  // Register the session now, rather than on the first tool call.
+  //
+  // Claude Code has a SessionStart hook that does this the moment the agent starts,
+  // which is why its sessions are visible and can be commented on straight away.
+  // Codex has no such hook: waiting for the model to call a tool left the session with
+  // no directory at all, so the sidebar could only show the transcript pulse — a row
+  // with nothing behind it to open and nowhere to put a comment.
+  //
+  // A failure here is not fatal: the agent's own work matters more than monitoring it,
+  // and each tool retries this anyway (TESTS.md MCP-13).
+  await runtime.ensureSession().catch((error: unknown) => {
+    process.stderr.write(
+      `agent-monitor: could not register the session: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
   });
 
   await server.connect(new StdioServerTransport());

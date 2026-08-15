@@ -112,7 +112,7 @@ export class MonitorRuntime {
       const next = optionalString(args, 'next', { maxLength: 1000 });
       const artifacts = optionalStringArray(args, 'artifacts');
 
-      await this.#ensureSession();
+      await this.ensureSession();
 
       const throttled = this.#isThrottled();
       const event = await this.store.appendEvent({
@@ -161,7 +161,7 @@ export class MonitorRuntime {
 
       const content = inlineContent ?? (await this.#readWorkspaceFile(sourcePath as string));
 
-      await this.#ensureSession();
+      await this.ensureSession();
       const ordinal = (await this.store.listArtifacts()).length + 1;
       const written = await this.store.writeArtifact(artifactFileName(ordinal, name), content);
 
@@ -188,7 +188,7 @@ export class MonitorRuntime {
       const args = asArgs(rawArgs);
       const since = optionalInt(args, 'since', { min: 0 });
 
-      await this.#ensureSession();
+      await this.ensureSession();
       const delivered = await this.#deliverFeedback({ ...(since === undefined ? {} : { since }) });
 
       return { text: delivered === '' ? 'No new comments from the human.' : delivered };
@@ -210,7 +210,7 @@ export class MonitorRuntime {
       const timeoutMs =
         optionalInt(args, 'timeout_ms', { min: 1000, max: 60 * 60_000 }) ?? this.#askTimeoutMs;
 
-      await this.#ensureSession();
+      await this.ensureSession();
       const event = await this.store.appendEvent({
         type: 'question',
         title: question,
@@ -263,7 +263,7 @@ export class MonitorRuntime {
       const status = requiredEnum<SessionStatus>(args, 'status', SESSION_STATUSES);
       const title = optionalString(args, 'title', { maxLength: 500 });
 
-      await this.#ensureSession();
+      await this.ensureSession();
       await this.store.patchMeta({
         status,
         ...(title === undefined ? {} : { title }),
@@ -281,7 +281,14 @@ export class MonitorRuntime {
     });
   }
 
-  async #ensureSession(): Promise<void> {
+  /**
+   * Create the session directory and its metadata, once per process.
+   *
+   * Called before every tool, and by the entry point at startup: a session the human
+   * cannot see is a session they cannot comment on, and Codex has no start-up hook to
+   * register one on its behalf (DESIGN.md §4.2).
+   */
+  async ensureSession(): Promise<void> {
     if (this.#initialized) return;
     await this.store.init({ agent: this.agent, cwd: this.#cwd });
     this.#initialized = true;

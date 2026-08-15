@@ -60,6 +60,30 @@ describe('stdio entry point', () => {
     expect(Math.min(...timings)).toBeLessThan(1000);
   }, 30_000);
 
+  it('MCP-17: registers the session on start, before the agent has called anything', async () => {
+    // Codex has no session-start hook, so this is the only moment its session can be
+    // created: waiting for the first tool call left the human with a transcript pulse
+    // and no session to open or comment on.
+    workspace = await makeWorkspace('agent-monitor-stdio-');
+    agent = await FakeAgent.spawn({
+      command: process.execPath,
+      args: [cli],
+      cwd: workspace.root,
+      env: { AGENT_MONITOR_SESSION_ID: 'sess-stdio', AGENT_MONITOR_AGENT: 'codex' },
+    });
+
+    expect(await listSessionIds(workspace.root)).toEqual(['sess-stdio']);
+    expect((await SessionStore.open(workspace.root, 'sess-stdio').readMeta())?.agent).toBe('codex');
+
+    // And the human can comment on it right away, which is the point.
+    await SessionStore.open(workspace.root, 'sess-stdio').appendComment({
+      kind: 'steer',
+      text: 'do not touch legacy/',
+    });
+    const result = await agent.tool('check_feedback', {});
+    expect(result.text).toContain('[steer] do not touch legacy/');
+  });
+
   it('writes the session into the workspace it was started in', async () => {
     workspace = await makeWorkspace('agent-monitor-stdio-');
     agent = await FakeAgent.spawn({
