@@ -16,6 +16,8 @@ interface WebviewMessage {
   kind?: string;
   replyTo?: number;
   ref?: string;
+  /** Identifies the send the panel is waiting on, so a stale reply cannot clear it. */
+  token?: string;
 }
 
 /**
@@ -114,17 +116,44 @@ export class SessionPanels {
 
   async #handle(sessionId: string, message: WebviewMessage): Promise<void> {
     if (message.type === 'comment' && typeof message.text === 'string') {
-      await this.model.postComment(sessionId, {
-        text: message.text,
-        kind: (message.kind ?? 'steer') as CommentKind,
-        ...(typeof message.replyTo === 'number' ? { replyTo: message.replyTo } : {}),
-      });
+      await this.#postComment(sessionId, message);
       return;
     }
 
     if (message.type === 'openArtifact' && typeof message.ref === 'string') {
       await this.#openArtifact(sessionId, message.ref);
     }
+  }
+
+  /**
+   * Write the comment, then tell the panel whether it landed.
+   *
+   * The panel keeps the text until this says it is on disk. A failure here — the
+   * session directory gone, the disk read-only — used to be an unhandled rejection
+   * behind `void`, with the box already emptied: the comment was lost from the screen
+   * and from the file at the same moment, and the human had every reason to believe
+   * it had been sent. Losing feedback silently is the most expensive failure this
+   * project has (TESTS.md HOOK-06); it does not get a pass in the UI.
+   */
+  async #postComment(sessionId: string, message: WebviewMessage): Promise<void> {
+    const panel = this.#panels.get(sessionId);
+    let delivered = false;
+
+    try {
+      await this.model.postComment(sessionId, {
+        text: message.text as string,
+        kind: (message.kind ?? 'steer') as CommentKind,
+        ...(typeof message.replyTo === 'number' ? { replyTo: message.replyTo } : {}),
+      });
+      delivered = true;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      void vscode.window.showErrorMessage(
+        `Agent Monitor could not save your comment: ${reason}. It is still in the box — try again.`,
+      );
+    }
+
+    void panel?.webview.postMessage({ type: 'commentSettled', token: message.token, delivered });
   }
 
   async #openArtifact(sessionId: string, ref: string): Promise<void> {

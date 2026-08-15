@@ -55,8 +55,12 @@ export function activate(context: vscode.ExtensionContext): void {
     passive = merged.visible;
     pulses = merged.attached;
 
+    // Read per refresh, not once at activate: a setting that needs a window reload to
+    // take effect is the same bug in a smaller form, and this lookup is in-memory.
+    const onQuestion = vscode.workspace.getConfiguration('agentMonitor').get<boolean>('notifyOnQuestion');
+
     for (const session of snapshot.sessions) {
-      notify(planNotification(session, previous.get(session.id)), panels, model);
+      notify(planNotification(session, previous.get(session.id), { onQuestion }), panels, model);
     }
     previous = new Map(snapshot.sessions.map((session) => [session.id, session]));
 

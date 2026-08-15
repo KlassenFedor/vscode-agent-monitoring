@@ -113,6 +113,7 @@ export class MonitorRuntime {
       const artifacts = optionalStringArray(args, 'artifacts');
 
       await this.ensureSession();
+      await this.#resumeFromReview();
 
       const throttled = this.#isThrottled();
       const event = await this.store.appendEvent({
@@ -162,6 +163,8 @@ export class MonitorRuntime {
       const content = inlineContent ?? (await this.#readWorkspaceFile(sourcePath as string));
 
       await this.ensureSession();
+      await this.#resumeFromReview();
+
       const ordinal = (await this.store.listArtifacts()).length + 1;
       const written = await this.store.writeArtifact(artifactFileName(ordinal, name), content);
 
@@ -270,7 +273,11 @@ export class MonitorRuntime {
         ...(status === 'done' ? { ended_at: this.#clock.iso() } : {}),
       });
       const event = await this.store.appendEvent({
-        type: 'status',
+        // An agent declaring `error` is the one status change worth interrupting the
+        // human for, and the notification keys off the event type rather than the
+        // status. Writing this as `status` left the whole `error` type unreachable:
+        // the icon and the notification existed, nothing ever produced one.
+        type: status === 'error' ? 'error' : 'status',
         title: title ?? `status: ${status}`,
         status,
       });
@@ -292,6 +299,20 @@ export class MonitorRuntime {
     if (this.#initialized) return;
     await this.store.init({ agent: this.agent, cwd: this.#cwd });
     this.#initialized = true;
+  }
+
+  /**
+   * A report means the agent is working again.
+   *
+   * `waiting_review` is set at the end of every turn — by the Claude Code Stop hook and
+   * by Codex's `notify` — and nothing used to clear it. An agent that took a comment and
+   * carried on stayed "waiting for review" in the sidebar for the rest of the session,
+   * which is to say the status stopped meaning anything exactly when somebody started
+   * watching it. `blocked` and `done` were chosen deliberately and are left alone.
+   */
+  async #resumeFromReview(): Promise<void> {
+    const meta = await this.store.readMeta();
+    if (meta?.status === 'waiting_review') await this.store.patchMeta({ status: 'working' });
   }
 
   /**

@@ -15,6 +15,15 @@ export interface NotificationPlan {
 
 const NOTHING: Omit<NotificationPlan, 'sessionId'> = { level: 'none', message: '', actions: [] };
 
+export interface NotifyOptions {
+  /**
+   * `agentMonitor.notifyOnQuestion`. Off means the badge and the panel still show the
+   * question; only the popup is withheld. Errors are not covered by it: an agent that
+   * hit a wall is not something to find out about later.
+   */
+  onQuestion?: boolean;
+}
+
 /**
  * Decide whether a change deserves to interrupt the human.
  *
@@ -22,10 +31,18 @@ const NOTHING: Omit<NotificationPlan, 'sessionId'> = { level: 'none', message: '
  * an error. Progress reports go to the badge and the timeline — a notification per
  * milestone would train the human to dismiss them all (TESTS.md EXT-06).
  */
-export function planNotification(next: SessionView, previous?: SessionView): NotificationPlan {
+export function planNotification(
+  next: SessionView,
+  previous?: SessionView,
+  options: NotifyOptions = {},
+): NotificationPlan {
   const base = { sessionId: next.id };
 
-  if (next.waitingQuestion && previous?.waitingQuestion?.seq !== next.waitingQuestion.seq) {
+  if (
+    options.onQuestion !== false &&
+    next.waitingQuestion &&
+    previous?.waitingQuestion?.seq !== next.waitingQuestion.seq
+  ) {
     const options = next.waitingQuestion.options;
     return {
       ...base,

@@ -301,7 +301,13 @@ let replyTo;
 // dropdown belong to the human, and a report arriving mid-sentence must not take them.
 window.addEventListener('message', (event) => {
   const update = event.data;
-  if (!update || update.type !== 'update') return;
+  if (!update) return;
+
+  if (update.type === 'commentSettled') {
+    settle(update.token, update.delivered === true);
+    return;
+  }
+  if (update.type !== 'update') return;
 
   const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 40;
   document.getElementById('session-title').textContent = update.title;
@@ -312,12 +318,33 @@ window.addEventListener('message', (event) => {
   if (atBottom) window.scrollTo(0, document.body.scrollHeight);
 });
 
+const sendButton = document.getElementById('send');
+let pending;
+
+// The box is emptied by the acknowledgement, never by the click. Clearing it up front
+// meant that a comment which failed to reach the disk was gone from both places at
+// once, and the human had no way to know: they watched it leave the box and assumed
+// it had been sent.
 function send() {
   const text = box.value.trim();
-  if (text === '') return;
-  vscode.postMessage({ type: 'comment', text, kind: kind.value, replyTo });
+  if (text === '' || pending) return;
+
+  pending = String(Date.now());
+  sendButton.disabled = true;
+  vscode.postMessage({ type: 'comment', text, kind: kind.value, replyTo, token: pending });
+}
+
+function settle(token, delivered) {
+  // The answer buttons post a comment too, without a token. Nothing the human typed is
+  // waiting on those, and emptying the box on their behalf would eat a half-written one.
+  if (!pending || token !== pending) return;
+  pending = undefined;
+  sendButton.disabled = false;
+  if (!delivered) return;
+
   box.value = '';
   replyTo = undefined;
+  box.placeholder = 'It will be delivered without interrupting the agent.';
 }
 
 document.getElementById('send').addEventListener('click', send);

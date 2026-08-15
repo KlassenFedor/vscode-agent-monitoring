@@ -301,6 +301,65 @@ describe('set_status', () => {
   });
 });
 
+describe('MCP-18: a report means the agent is working again', () => {
+  it('lifts a session out of waiting_review when it publishes', async () => {
+    // The Stop hook and Codex's `notify` set waiting_review at the end of every turn,
+    // and nothing used to clear it: the sidebar said "waiting for review" for the rest
+    // of the session while the agent worked.
+    const { runtime, store } = await makeHarness();
+    await runtime.reportProgress({ title: 'first milestone' });
+    await store.patchMeta({ status: 'waiting_review' });
+
+    await runtime.reportProgress({ title: 'second milestone' });
+
+    expect((await store.readMeta())?.status).toBe('working');
+  });
+
+  it('does the same for a published artifact', async () => {
+    const { runtime, store } = await makeHarness();
+    await runtime.reportProgress({ title: 'first milestone' });
+    await store.patchMeta({ status: 'waiting_review' });
+
+    await runtime.publishArtifact({ name: 'plan.md', content: '# plan' });
+
+    expect((await store.readMeta())?.status).toBe('working');
+  });
+
+  it('leaves a status the agent chose deliberately alone', async () => {
+    // `done` and `blocked` are decisions, not leftovers. Reporting over `done` would
+    // bring a finished session back to life.
+    for (const status of ['done', 'blocked'] as const) {
+      const { runtime, store } = await makeHarness();
+      await runtime.reportProgress({ title: 'first milestone' });
+      await store.patchMeta({ status });
+
+      await runtime.reportProgress({ title: 'second milestone' });
+
+      expect((await store.readMeta())?.status).toBe(status);
+    }
+  });
+});
+
+describe('MCP-19: an agent declaring an error is worth interrupting for', () => {
+  it('writes it as an error entry, not a status entry', async () => {
+    // The notification and the icon key off the event type. Written as `status`, the
+    // whole `error` type was unreachable: declared in the schema, produced by nobody.
+    const { runtime, store } = await makeHarness();
+
+    await runtime.setStatus({ status: 'error', title: 'the build will not link' });
+
+    const [event] = await store.listEvents();
+    expect(event).toMatchObject({ type: 'error', status: 'error', title: 'the build will not link' });
+    expect((await store.readMeta())?.status).toBe('error');
+  });
+
+  it('leaves every other status as a plain status entry', async () => {
+    const { runtime, store } = await makeHarness();
+    await runtime.setStatus({ status: 'blocked' });
+    expect((await store.listEvents())[0]?.type).toBe('status');
+  });
+});
+
 describe('failure handling', () => {
   // POSIX only: `chmod` on Windows moves one read-only bit and does not stop writes
   // inside a directory, so there is no failure to report and the test would assert

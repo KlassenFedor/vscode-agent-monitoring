@@ -396,3 +396,40 @@ describe('EXT-22: a comment addressed to nothing is still visible', () => {
     );
   });
 });
+
+describe('EXT-23: the question notification obeys its setting', () => {
+  const asking = view({
+    status: 'blocked',
+    events: [
+      {
+        seq: 1,
+        ts: '2026-08-13T10:00:00.000Z',
+        type: 'question',
+        title: 'Rewrite the CLI or keep it?',
+        needs_answer: true,
+      },
+    ],
+  });
+  const blocked = { ...asking, waitingQuestion: asking.events[0] ?? null };
+
+  it('withholds the popup when the human turned it off', () => {
+    expect(planNotification(blocked, undefined, { onQuestion: false }).level).toBe('none');
+  });
+
+  it('shows it by default, and when the setting is unset', () => {
+    // `agentMonitor.notifyOnQuestion` was declared in package.json and read by nobody:
+    // switching it off changed nothing at all.
+    expect(planNotification(blocked).level).toBe('info');
+    expect(planNotification(blocked, undefined, {}).level).toBe('info');
+    expect(planNotification(blocked, undefined, { onQuestion: true }).level).toBe('info');
+  });
+
+  it('still reports an error, which the setting does not cover', () => {
+    // An agent that hit a wall is not something to find out about later.
+    const failed = view({
+      events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'error', title: 'the build will not link' }],
+    });
+
+    expect(planNotification(failed, undefined, { onQuestion: false }).level).toBe('error');
+  });
+});
