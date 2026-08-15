@@ -37,6 +37,28 @@ export interface SetupReport {
   notes: string[];
 }
 
+export interface SetupOptions {
+  /**
+   * Work out what would change without touching anything.
+   *
+   * The same code path decides, so the preview cannot drift from the write: the only
+   * difference is where the bytes go. This exists because one of the files is
+   * `~/.codex/config.toml` — outside the workspace, shared by every project on the
+   * machine — and finding out afterwards from "updated 3 file(s)" is not consent.
+   */
+  dryRun?: boolean;
+}
+
+/** Where a step sends its bytes. Swapped out to preview instead of write. */
+export type Writer = (file: string, content: string) => Promise<void>;
+
+const realWriter: Writer = async (file, content) => {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, content, 'utf8');
+};
+
+const previewWriter: Writer = async () => {};
+
 /**
  * Wire the current workspace up for both agents.
  *
@@ -45,22 +67,27 @@ export interface SetupReport {
  * twice must produce byte-identical files (TESTS.md EXT-08), and running it after an
  * extension upgrade must repoint the old paths rather than adding a second copy.
  */
-export async function setupWorkspace(paths: SetupPaths): Promise<SetupReport> {
+export async function setupWorkspace(paths: SetupPaths, options: SetupOptions = {}): Promise<SetupReport> {
   const report: SetupReport = { changed: [], unchanged: [], notes: [] };
+  const write = options.dryRun === true ? previewWriter : realWriter;
 
-  await fs.mkdir(monitorDir(paths.root), { recursive: true });
-  await record(report, path.join(paths.root, '.gitignore'), () => ensureGitignoreEntry(paths.root));
-  await record(report, path.join(paths.root, '.mcp.json'), () => writeMcpConfig(paths));
-  await record(report, path.join(paths.root, '.claude', 'settings.json'), () => writeClaudeHooks(paths));
+  if (options.dryRun !== true) await fs.mkdir(monitorDir(paths.root), { recursive: true });
+  await record(report, path.join(paths.root, '.gitignore'), () => ensureGitignoreEntry(paths.root, write));
+  await record(report, path.join(paths.root, '.mcp.json'), () => writeMcpConfig(paths, write));
+  await record(report, path.join(paths.root, '.claude', 'settings.json'), () =>
+    writeClaudeHooks(paths, write),
+  );
   await record(report, path.join(paths.root, 'CLAUDE.md'), () =>
-    writeMarkerBlock(path.join(paths.root, 'CLAUDE.md'), agentInstructions('claude')),
+    writeMarkerBlock(path.join(paths.root, 'CLAUDE.md'), agentInstructions('claude'), write),
   );
   await record(report, path.join(paths.root, 'AGENTS.md'), () =>
-    writeMarkerBlock(path.join(paths.root, 'AGENTS.md'), agentInstructions('codex')),
+    writeMarkerBlock(path.join(paths.root, 'AGENTS.md'), agentInstructions('codex'), write),
   );
 
   if (paths.codexConfig) {
-    await record(report, paths.codexConfig, () => writeCodexConfig(paths.codexConfig as string, paths));
+    await record(report, paths.codexConfig, () =>
+      writeCodexConfig(paths.codexConfig as string, paths, write),
+    );
   } else {
     report.notes.push('Codex config was not touched: no config path was provided.');
   }
@@ -94,7 +121,7 @@ async function record(report: SetupReport, file: string, step: () => Promise<boo
 }
 
 /** Returns true when the file was modified. */
-export async function ensureGitignoreEntry(root: string): Promise<boolean> {
+export async function ensureGitignoreEntry(root: string, write: Writer = realWriter): Promise<boolean> {
   const file = path.join(root, '.gitignore');
   const entry = `${MONITOR_DIR}/`;
   const current = (await readTextOrNull(file)) ?? '';
@@ -103,11 +130,11 @@ export async function ensureGitignoreEntry(root: string): Promise<boolean> {
   if (lines.includes(entry) || lines.includes(MONITOR_DIR)) return false;
 
   const prefix = current === '' || current.endsWith('\n') ? current : `${current}\n`;
-  await writeFile(file, `${prefix}${entry}\n`);
+  await write(file, `${prefix}${entry}\n`);
   return true;
 }
 
-export async function writeMcpConfig(paths: SetupPaths): Promise<boolean> {
+export async function writeMcpConfig(paths: SetupPaths, write: Writer = realWriter): Promise<boolean> {
   const file = path.join(paths.root, '.mcp.json');
   const config = ((await readJson(file)) ?? {}) as Record<string, unknown>;
   const servers = (config.mcpServers ?? {}) as Record<string, unknown>;
@@ -119,7 +146,7 @@ export async function writeMcpConfig(paths: SetupPaths): Promise<boolean> {
   if (deepEqual(servers[OWNERSHIP_MARKER], desired)) return false;
 
   config.mcpServers = { ...servers, [OWNERSHIP_MARKER]: desired };
-  await writeFile(file, `${JSON.stringify(config, null, 2)}\n`);
+  await write(file, `${JSON.stringify(config, null, 2)}\n`);
   return true;
 }
 
@@ -128,7 +155,7 @@ interface HookEntry {
   hooks: { type: string; command: string }[];
 }
 
-export async function writeClaudeHooks(paths: SetupPaths): Promise<boolean> {
+export async function writeClaudeHooks(paths: SetupPaths, write: Writer = realWriter): Promise<boolean> {
   const file = path.join(paths.root, '.claude', 'settings.json');
   const settings = ((await readJson(file)) ?? {}) as Record<string, unknown>;
   const hooks = { ...((settings.hooks ?? {}) as Record<string, HookEntry[]>) };
@@ -150,7 +177,7 @@ export async function writeClaudeHooks(paths: SetupPaths): Promise<boolean> {
   const next = `${JSON.stringify(settings, null, 2)}\n`;
   if ((await readTextOrNull(file)) === next) return false;
 
-  await writeFile(file, next);
+  await write(file, next);
   return true;
 }
 
@@ -170,7 +197,11 @@ function command(paths: SetupPaths, subcommand: string): { type: string; command
  * extension writes outside the workspace. It edits a single block and keeps a backup,
  * because the file also holds the user's model and approval settings (EXT-09).
  */
-export async function writeCodexConfig(file: string, paths: SetupPaths): Promise<boolean> {
+export async function writeCodexConfig(
+  file: string,
+  paths: SetupPaths,
+  write: Writer = realWriter,
+): Promise<boolean> {
   const current = (await readTextOrNull(file)) ?? '';
   const block = [
     `[mcp_servers.${OWNERSHIP_MARKER}]`,
@@ -187,8 +218,8 @@ export async function writeCodexConfig(file: string, paths: SetupPaths): Promise
   );
   if (next === current) return false;
 
-  if (current !== '') await writeFile(`${file}.agent-monitor.bak`, current);
-  await writeFile(file, next);
+  if (current !== '') await write(`${file}.agent-monitor.bak`, current);
+  await write(file, next);
   return true;
 }
 
@@ -244,7 +275,11 @@ export function replaceTomlBlock(source: string, header: string, block: string):
  * Bounded by markers so an update rewrites only what the extension wrote; the rest of
  * a file the human has been curating stays exactly as it was (EXT-10).
  */
-export async function writeMarkerBlock(file: string, body: string): Promise<boolean> {
+export async function writeMarkerBlock(
+  file: string,
+  body: string,
+  write: Writer = realWriter,
+): Promise<boolean> {
   const current = (await readTextOrNull(file)) ?? '';
   const block = `${MARKER_START}\n${body.trim()}\n${MARKER_END}`;
 
@@ -260,7 +295,7 @@ export async function writeMarkerBlock(file: string, body: string): Promise<bool
   }
 
   if (next === current) return false;
-  await writeFile(file, next);
+  await write(file, next);
   return true;
 }
 
@@ -296,11 +331,6 @@ async function readJson(file: string): Promise<unknown | null> {
       cause: error,
     });
   }
-}
-
-async function writeFile(file: string, content: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, content, 'utf8');
 }
 
 function quote(value: string): string {

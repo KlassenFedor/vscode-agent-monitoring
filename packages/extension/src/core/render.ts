@@ -1,6 +1,7 @@
 import type { AgentEvent, Comment } from '@agent-monitor/protocol';
 
 import { artifactLabel } from './artifacts.js';
+import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from './kinds.js';
 import type { SessionView } from './model.js';
 import { sessionLabel } from './notify.js';
 
@@ -23,9 +24,6 @@ export interface SessionPulse {
   transcriptPath: string;
   entries: readonly { ordinal: number; ts: string | null; kind: 'message' | 'tool'; text: string }[];
 }
-
-/** Default reason for a stop sent with an empty box; the schema wants text. */
-export const DEFAULT_STOP_REASON = 'The human asked you to stop and wait.';
 
 /**
  * Build the session panel.
@@ -71,11 +69,10 @@ ${renderRows(update.rows)}
   <textarea id="comment" rows="3" placeholder="${escapeHtml(COMPOSER_PLACEHOLDER)}"></textarea>
   <div class="composer-actions">
     <select id="kind" aria-label="What this comment is">
-      <option value="steer">Change the plan</option>
-      <option value="fyi">Just so you know</option>
+${renderKindOptions()}
     </select>
     <button id="send" type="button">Send</button>
-    <button id="stop" type="button" class="danger" title="${escapeHtml(STOP_TITLE)}">Stop and wait</button>
+    <button id="stop" type="button" class="danger" title="${escapeHtml(STOP_CHOICE.detail)}">${escapeHtml(STOP_CHOICE.label)}</button>
   </div>
   <p class="composer-hint" id="kind-hint"></p>
 </footer>
@@ -352,19 +349,18 @@ const EMPTY_TIMELINE = '<p class="empty">No reports yet. The agent publishes one
 const COMPOSER_PLACEHOLDER = 'It will be delivered without interrupting the agent.';
 
 /**
- * Said on the button itself, because it is the one thing about `stop` that surprises.
+ * The kinds, worded the same here as in the command palette.
  *
- * A blocked agent ends its turn and waits on its own terminal; hooks stop running, so
- * nothing written to the session can reach it (docs-local/live/FINDINGS.md §1). There
- * is no "carry on" button to pair with this one, and pretending otherwise would be a
- * worse lie than the missing button.
+ * Both come from {@link COMMENT_KIND_CHOICES}: two sets of wording for the same three
+ * things is how they end up meaning subtly different things.
  */
-const STOP_TITLE = 'The agent stops and waits. Telling it to carry on happens in the terminal it runs in.';
+function renderKindOptions(): string {
+  return COMMENT_KIND_CHOICES.map(
+    (choice) => `      <option value="${escapeHtml(choice.kind)}">${escapeHtml(choice.label)}</option>`,
+  ).join('\n');
+}
 
-const KIND_HINTS: Record<string, string> = {
-  steer: 'Overrides the plan: the agent has to apply it from its next step.',
-  fyi: 'Context only. The agent is not expected to change what it is doing.',
-};
+const KIND_HINTS = Object.fromEntries(COMMENT_KIND_CHOICES.map((choice) => [choice.kind, choice.detail]));
 
 const STYLES = `
 body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 0 1rem 10rem; }

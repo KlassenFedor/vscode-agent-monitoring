@@ -73,9 +73,45 @@
         "command": "agentMonitor.refresh",
         "title": "Agent Monitor: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "agentMonitor.stopSession",
+        "title": "Agent Monitor: Stop and Wait",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "agentMonitor.openTranscript",
+        "title": "Agent Monitor: Open Transcript"
       }
     ],
     "menus": {
+      "view/item/context": [
+        {
+          "command": "agentMonitor.openSession",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "group": "navigation@1"
+        },
+        {
+          "command": "agentMonitor.comment",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "group": "navigation@2"
+        },
+        {
+          "command": "agentMonitor.stopSession",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "group": "navigation@3"
+        },
+        {
+          "command": "agentMonitor.openTranscript",
+          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|passiveSession)/",
+          "group": "other@1"
+        },
+        {
+          "command": "agentMonitor.setupWorkspace",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.passiveSession",
+          "group": "other@2"
+        }
+      ],
       "view/title": [
         {
           "command": "agentMonitor.setupWorkspace",

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { openKindFor } from '../src/core/artifacts.js';
 import type { SessionView } from '../src/core/model.js';
-import { planNotification } from '../src/core/notify.js';
+import { planNotification, sessionChoices } from '../src/core/notify.js';
+import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from '../src/core/kinds.js';
 import {
-  DEFAULT_STOP_REASON,
   diffRows,
   escapeHtml,
   formatTime,
@@ -589,5 +589,68 @@ describe('EXT-23: the question notification obeys its setting', () => {
     });
 
     expect(planNotification(failed, undefined, { onQuestion: false }).level).toBe('error');
+  });
+});
+
+describe('EXT-29: choosing between sessions', () => {
+  const session = (id: string, title?: string): SessionView =>
+    view({
+      id,
+      meta: {
+        id,
+        agent: 'codex',
+        cwd: '/work',
+        status: 'working',
+        started_at: '2026-08-13T10:00:00.000Z',
+        updated_at: '2026-08-13T10:00:00.000Z',
+        protocol_version: 1,
+        ...(title === undefined ? {} : { title }),
+      },
+    });
+
+  it('carries the id, so two identical titles are still two sessions', () => {
+    // Titles come from a language model and can match. Picking the session back out by
+    // its label handed the comment to whichever was first — silently, and in the case
+    // where being precise matters most.
+    const choices = sessionChoices([
+      session('sess-a', 'Refactoring the parser'),
+      session('sess-b', 'Refactoring the parser'),
+    ]);
+
+    expect(choices.map((choice) => choice.id)).toEqual(['sess-a', 'sess-b']);
+    expect(choices[0]?.description).not.toBe(choices[1]?.description);
+  });
+
+  it('says enough in the description to tell them apart', () => {
+    const [choice] = sessionChoices([
+      {
+        ...session('sess-a'),
+        unread: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', kind: 'steer', text: 'careful' }],
+      },
+    ]);
+
+    expect(choice?.description).toContain('codex');
+    expect(choice?.description).toContain('working');
+    expect(choice?.description).toContain('1 undelivered');
+    expect(choice?.description).toContain('sess-a');
+  });
+});
+
+describe('EXT-31: one wording for a comment kind, not two', () => {
+  it('offers the panel exactly the choices the palette offers', () => {
+    // The panel had three short labels and the palette had different sentences for the
+    // same three things, which is how they end up meaning subtly different things.
+    const html = renderSession(view(), options);
+
+    for (const choice of COMMENT_KIND_CHOICES) {
+      expect(html).toContain(`value="${choice.kind}"`);
+      expect(html).toContain(choice.label);
+      expect(html).toContain(choice.detail);
+    }
+  });
+
+  it('keeps stop out of that list and names the cost on it', () => {
+    expect(COMMENT_KIND_CHOICES.map((choice) => choice.kind)).not.toContain('stop');
+    expect(STOP_CHOICE.detail).toContain('terminal it runs in');
   });
 });

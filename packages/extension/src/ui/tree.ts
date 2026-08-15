@@ -5,8 +5,10 @@ import type { AgentEvent } from '@agent-monitor/protocol';
 import type { SessionView, WorkspaceModel } from '../core/model.js';
 import { sessionLabel } from '../core/notify.js';
 import type { PassiveSessionView } from '../core/passive/tracker.js';
+import { formatTime } from '../core/render.js';
 
-type Node =
+/** Exported so the commands a context menu fires can read what was clicked. */
+export type Node =
   | { kind: 'session'; session: SessionView }
   | { kind: 'event'; session: SessionView; event: AgentEvent }
   | { kind: 'passive'; passive: PassiveSessionView };
@@ -75,13 +77,18 @@ function sessionItem(session: SessionView, pulse?: PassiveSessionView): vscode.T
   );
 
   const stale = pulse ? pulse.stale : session.stale;
+  const lastAt = pulse?.lastActivityAt ?? session.lastActivityAt;
+
   const bits: string[] = [session.status];
   if (session.unread.length > 0) bits.push(`${session.unread.length} unread`);
   if (session.events.length === 0 && pulse?.currentTool) bits.push(pulse.currentTool);
   if (stale) bits.push('stale');
+  // Promised by DESIGN.md §6 and missing: "is it alive" is a question about a clock.
+  if (lastAt !== null) bits.push(formatTime(lastAt));
 
   item.description = bits.join(' · ');
   item.iconPath = new vscode.ThemeIcon(iconForSession(session, stale));
+  item.tooltip = sessionTooltip(session, pulse, lastAt);
   item.contextValue = 'agentMonitor.session';
   item.command = {
     command: 'agentMonitor.openSession',
@@ -91,11 +98,29 @@ function sessionItem(session: SessionView, pulse?: PassiveSessionView): vscode.T
   return item;
 }
 
+function sessionTooltip(
+  session: SessionView,
+  pulse: PassiveSessionView | undefined,
+  lastAt: string | null,
+): string {
+  return [
+    sessionLabel(session),
+    `${session.meta?.agent ?? 'agent'} · ${session.status}`,
+    lastAt === null ? '' : `Last activity ${lastAt}`,
+    session.events.length > 0 ? `${session.events.length} report(s)` : 'No reports published yet',
+    session.unread.length > 0 ? `${session.unread.length} comment(s) not delivered yet` : '',
+    pulse?.currentTool ? `Running ${pulse.currentTool}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 /**
  * A session we only know about from its transcript.
  *
- * Shown without a command: there is no session directory to open, no timeline to
- * read and nowhere to put a comment. It exists to answer "is it alive".
+ * There is no session directory behind it: nothing to open, nowhere to put a comment.
+ * Clicking opens the transcript itself, because a row that answers nothing at all is
+ * a dead end, and the transcript is the one thing that does exist.
  */
 function passiveItem(passive: PassiveSessionView): vscode.TreeItem {
   const item = new vscode.TreeItem(
@@ -117,6 +142,11 @@ function passiveItem(passive: PassiveSessionView): vscode.TreeItem {
     .join('\n');
   item.iconPath = new vscode.ThemeIcon(passive.stale ? 'warning' : 'circle-outline');
   item.contextValue = 'agentMonitor.passiveSession';
+  item.command = {
+    command: 'agentMonitor.openTranscript',
+    title: 'Open transcript',
+    arguments: [passive.transcriptPath],
+  };
   return item;
 }
 

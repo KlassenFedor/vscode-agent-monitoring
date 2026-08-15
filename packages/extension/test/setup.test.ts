@@ -307,3 +307,46 @@ async function snapshotFiles(paths: SetupPaths): Promise<Record<string, string>>
   const entries = await Promise.all(files.map(async (file) => [file, await read(file)] as const));
   return Object.fromEntries(entries);
 }
+
+describe('EXT-30: Setup says what it will touch before it touches it', () => {
+  it('names the same files a real run changes, and writes none of them', async () => {
+    // One of them is ~/.codex/config.toml: outside the workspace, shared by every
+    // project on the machine. Finding out afterwards from "updated 3 file(s)" is not
+    // consent. The preview is the same code with the writes turned off, so it cannot
+    // drift from what actually happens.
+    const paths = await makeSetup();
+
+    const plan = await setupWorkspace(paths, { dryRun: true });
+    const before = await listFiles(paths.root);
+
+    expect(plan.changed.length).toBeGreaterThan(0);
+    expect(plan.changed).toContain(paths.codexConfig);
+    expect(before).toEqual([]);
+    await expect(fs.stat(paths.codexConfig as string)).rejects.toThrow();
+
+    const real = await setupWorkspace(paths);
+    expect(real.changed).toEqual(plan.changed);
+  });
+
+  it('promises nothing when there is nothing left to do', async () => {
+    const paths = await makeSetup();
+    await setupWorkspace(paths);
+
+    expect((await setupWorkspace(paths, { dryRun: true })).changed).toEqual([]);
+  });
+
+  it('leaves an existing config untouched while previewing', async () => {
+    const paths = await makeSetup();
+    await fs.writeFile(paths.codexConfig as string, 'model = "gpt-5.6"\n', 'utf8');
+
+    await setupWorkspace(paths, { dryRun: true });
+
+    expect(await read(paths.codexConfig as string)).toBe('model = "gpt-5.6"\n');
+    await expect(fs.stat(`${paths.codexConfig as string}.agent-monitor.bak`)).rejects.toThrow();
+  });
+});
+
+async function listFiles(dir: string): Promise<string[]> {
+  const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true });
+  return entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
+}

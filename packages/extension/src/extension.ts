@@ -5,15 +5,16 @@ import * as vscode from 'vscode';
 
 import type { CommentKind } from '@agent-monitor/protocol';
 
+import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from './core/kinds.js';
 import { WorkspaceModel, type SessionView } from './core/model.js';
-import { planNotification, sessionLabel } from './core/notify.js';
+import { planNotification, sessionChoices, sessionLabel } from './core/notify.js';
 import { mergePassive } from './core/passive/merge.js';
 import { PassiveTracker, type KnownTranscript, type PassiveSessionView } from './core/passive/tracker.js';
 import { rotateSessions } from './core/rotate.js';
 import { isSetUp, setupWorkspace } from './core/setup.js';
 import { SessionWatcher } from './core/watcher.js';
 import { SessionPanels } from './ui/panel.js';
-import { SessionTreeProvider } from './ui/tree.js';
+import { SessionTreeProvider, type Node } from './ui/tree.js';
 
 export function activate(context: vscode.ExtensionContext): void {
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -83,11 +84,18 @@ export function activate(context: vscode.ExtensionContext): void {
     { dispose: () => watcher.stop() },
     { dispose: () => panels.dispose() },
     vscode.commands.registerCommand('agentMonitor.refresh', () => void refresh()),
-    vscode.commands.registerCommand('agentMonitor.openSession', (sessionId?: string) => {
-      const id = sessionId ?? model.snapshot().sessions[0]?.id;
-      if (id) panels.show(id);
+    vscode.commands.registerCommand('agentMonitor.openSession', (target?: string | Node) => {
+      void openSession(model, panels, target);
     }),
-    vscode.commands.registerCommand('agentMonitor.comment', () => void promptForComment(model)),
+    vscode.commands.registerCommand('agentMonitor.comment', (target?: Node) => {
+      void promptForComment(model, sessionIdOf(target));
+    }),
+    vscode.commands.registerCommand('agentMonitor.stopSession', (target?: Node) => {
+      void stopSession(model, sessionIdOf(target));
+    }),
+    vscode.commands.registerCommand('agentMonitor.openTranscript', (target?: string | Node) => {
+      void openTranscript(target);
+    }),
     vscode.commands.registerCommand('agentMonitor.setupWorkspace', () => void runSetup(context, root)),
   );
 
@@ -156,55 +164,185 @@ function notify(
   });
 }
 
-async function promptForComment(model: WorkspaceModel): Promise<void> {
+/** What the tree clicked on, when a command was fired from a context menu. */
+function sessionIdOf(target?: Node): string | undefined {
+  if (target && typeof target === 'object' && target.kind === 'session') return target.session.id;
+  return undefined;
+}
+
+/**
+ * Choose a session to act on.
+ *
+ * Never by label: titles come from a language model and two of them can match. The
+ * pick returns an id, and a single running session skips the question entirely.
+ */
+async function pickSession(model: WorkspaceModel, title: string): Promise<string | undefined> {
   const sessions = model.snapshot().sessions.filter((session) => session.status !== 'done');
   if (sessions.length === 0) {
     void vscode.window.showInformationMessage('Agent Monitor: no running sessions in this workspace.');
+    return undefined;
+  }
+  if (sessions.length === 1) return sessions[0]?.id;
+
+  const picked = await vscode.window.showQuickPick(
+    sessionChoices(sessions).map((choice) => ({ ...choice, detail: '' })),
+    { title, ignoreFocusOut: true },
+  );
+  return picked?.id;
+}
+
+async function openSession(
+  model: WorkspaceModel,
+  panels: SessionPanels,
+  target?: string | Node,
+): Promise<void> {
+  // Two agents in one workspace is a supported case (E2E-07), and this command is also
+  // what the status bar fires: opening whichever session came first, without saying so,
+  // is a coin toss the human never sees.
+  const direct = typeof target === 'string' ? target : sessionIdOf(target);
+  const id = direct ?? (await pickSession(model, 'Open which session?'));
+  if (id) panels.show(id);
+}
+
+/**
+ * Open the agent's own transcript.
+ *
+ * This is what a passive row does when clicked. It has no session directory behind it,
+ * so there is nothing to open and nowhere to comment — and a row that answers nothing
+ * at all is worse than one that answers the only question it can.
+ */
+async function openTranscript(target?: string | Node): Promise<void> {
+  const file =
+    typeof target === 'string'
+      ? target
+      : target?.kind === 'passive'
+        ? target.passive.transcriptPath
+        : target?.kind === 'session'
+          ? target.session.meta?.transcript_path
+          : undefined;
+
+  if (!file) {
+    void vscode.window.showInformationMessage('Agent Monitor: no transcript is known for this session yet.');
     return;
   }
+  await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file));
+}
 
-  let target = sessions[0];
-  if (sessions.length > 1) {
-    const picked = await vscode.window.showQuickPick(sessions.map(sessionLabel), {
-      title: 'Comment on which session?',
-      ignoreFocusOut: true,
-    });
-    if (!picked) return;
-    target = sessions.find((session) => sessionLabel(session) === picked);
-  }
-  if (!target) return;
+/**
+ * Stop the agent and say why.
+ *
+ * Offered as an action rather than a kind of comment, and honest about what it costs:
+ * a blocked agent ends its turn waiting on its own terminal, and no button here can
+ * tell it to carry on (docs-local/live/FINDINGS.md §1).
+ */
+async function stopSession(model: WorkspaceModel, sessionId?: string): Promise<void> {
+  const id = sessionId ?? (await pickSession(model, 'Stop which session?'));
+  if (!id) return;
 
-  const kind = await vscode.window.showQuickPick(
-    [
-      { label: 'steer', detail: 'Change the plan. The agent must apply it from its next step.' },
-      { label: 'fyi', detail: 'Context only.' },
-      { label: 'stop', detail: 'Stop and wait for me.' },
-    ],
-    // Anything that takes the focus — a panel refreshing, a notification — would
-    // otherwise dismiss the pick before the human has read the three options.
-    { title: 'Kind of comment', ignoreFocusOut: true },
+  const confirmed = await vscode.window.showWarningMessage(
+    STOP_CHOICE.detail,
+    { modal: true },
+    STOP_CHOICE.label,
   );
-  if (!kind) return;
+  if (confirmed !== STOP_CHOICE.label) return;
+
+  const reason = await vscode.window.showInputBox({
+    title: 'Why should it stop?',
+    value: DEFAULT_STOP_REASON,
+    ignoreFocusOut: true,
+  });
+  if (reason === undefined) return;
+
+  await post(model, id, { text: reason.trim() === '' ? DEFAULT_STOP_REASON : reason, kind: 'stop' });
+}
+
+async function promptForComment(model: WorkspaceModel, sessionId?: string): Promise<void> {
+  const id = sessionId ?? (await pickSession(model, 'Comment on which session?'));
+  if (!id) return;
+
+  // `value`, not `kind`: `QuickPickItem.kind` is VS Code's own separator enum, and
+  // reusing the name makes the item stop being a QuickPickItem at all.
+  const picked = await vscode.window.showQuickPick(
+    COMMENT_KIND_CHOICES.map((choice) => ({
+      label: choice.label,
+      detail: choice.detail,
+      value: choice.kind,
+    })),
+    // Anything that takes the focus — a panel refreshing, a notification — would
+    // otherwise dismiss the pick before the human has read the options.
+    { title: 'What is this comment?', ignoreFocusOut: true },
+  );
+  if (!picked) return;
 
   const text = await vscode.window.showInputBox({
-    title: 'Comment',
+    title: picked.label,
     placeHolder: 'e.g. do not touch legacy/',
     ignoreFocusOut: true,
   });
   if (!text) return;
 
-  await model.postComment(target.id, { text, kind: kind.label as CommentKind });
+  await post(model, id, { text, kind: picked.value });
 }
 
+/** Writing a comment can fail, and a comment lost in silence is the worst outcome. */
+async function post(
+  model: WorkspaceModel,
+  sessionId: string,
+  input: { text: string; kind: CommentKind },
+): Promise<void> {
+  try {
+    await model.postComment(sessionId, input);
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `Agent Monitor could not save your comment: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * Wire the workspace up, after saying which files that means.
+ *
+ * One of them is `~/.codex/config.toml`: outside the workspace, shared by every project
+ * on the machine, and holding the human's own model and approval settings. Finding out
+ * afterwards from "updated 3 file(s)" is not consent. The preview runs the same code
+ * with the writes turned off, so it cannot drift from what actually happens.
+ */
 async function runSetup(context: vscode.ExtensionContext, root: string): Promise<void> {
   const dist = path.join(context.extensionPath, 'dist');
-  const report = await setupWorkspace({
+  const paths = {
     root,
     node: process.execPath,
     mcpServer: path.join(dist, 'mcp-server.cjs'),
     hook: path.join(dist, 'hook.cjs'),
     codexConfig: path.join(os.homedir(), '.codex', 'config.toml'),
-  });
+  };
+
+  const plan = await setupWorkspace(paths, { dryRun: true });
+  if (plan.changed.length === 0 && plan.notes.length === 0) {
+    void vscode.window.showInformationMessage('Agent Monitor: already set up, nothing to change.');
+    return;
+  }
+
+  const outside = plan.changed.filter((file) => !file.startsWith(root + path.sep));
+  const apply = 'Apply';
+  const confirmed = await vscode.window.showInformationMessage(
+    'Agent Monitor will change these files:',
+    {
+      modal: true,
+      detail: [
+        plan.changed.map((file) => `• ${file}`).join('\n'),
+        outside.length === 0
+          ? ''
+          : '\nThe Codex config lives outside this workspace and is shared by all your projects. A backup is written next to it.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    },
+    apply,
+  );
+  if (confirmed !== apply) return;
+
+  const report = await setupWorkspace(paths);
 
   const summary =
     report.changed.length === 0

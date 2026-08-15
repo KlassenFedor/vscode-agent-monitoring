@@ -83,3 +83,34 @@ export function sessionLabel(session: SessionView): string {
   const agent = session.meta?.agent ?? 'agent';
   return `${agent} session ${session.id.slice(0, 8)}`;
 }
+
+export interface SessionChoice {
+  /** What the caller acts on. Never the label: two sessions can share one. */
+  id: string;
+  label: string;
+  /** Whatever tells this one apart from its neighbours in the list. */
+  description: string;
+}
+
+/**
+ * Offer the sessions to choose between.
+ *
+ * The id travels with the choice because titles are written by a language model and
+ * two of them can easily match: picking the session back out by its label handed the
+ * comment to whichever one happened to be first, silently and in the case — several
+ * agents at once — where being precise matters most.
+ */
+export function sessionChoices(sessions: readonly SessionView[]): SessionChoice[] {
+  return sessions.map((session) => ({
+    id: session.id,
+    label: sessionLabel(session),
+    description: [
+      session.meta?.agent ?? 'agent',
+      session.status,
+      session.unread.length > 0 ? `${session.unread.length} undelivered` : '',
+      session.id.slice(0, 8),
+    ]
+      .filter(Boolean)
+      .join(' · '),
+  }));
+}
