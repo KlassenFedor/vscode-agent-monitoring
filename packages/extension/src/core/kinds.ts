@@ -21,13 +21,13 @@ export interface CommentKindChoice {
 export const COMMENT_KIND_CHOICES: readonly CommentKindChoice[] = [
   {
     kind: 'steer',
-    label: 'Change the plan',
-    detail: 'Overrides the plan: the agent has to apply it from its next step.',
+    label: 'Change course',
+    detail: 'Binding: the agent applies it from its next step and drops the part of its plan that conflicts.',
   },
   {
     kind: 'fyi',
-    label: 'Just so you know',
-    detail: 'Context only. The agent is not expected to change what it is doing.',
+    label: 'Add context',
+    detail: 'Not binding: the agent takes note and carries on as planned.',
   },
 ];
 
@@ -40,9 +40,28 @@ export const COMMENT_KIND_CHOICES: readonly CommentKindChoice[] = [
  */
 export const STOP_CHOICE: CommentKindChoice = {
   kind: 'stop',
-  label: 'Stop and wait',
-  detail: 'The agent stops and waits. Telling it to carry on happens in the terminal it runs in.',
+  label: 'Stop the agent',
+  detail: 'It stops and waits. Only the terminal it runs in can start it again.',
 };
 
 /** Default reason for a stop sent with nothing typed; the schema wants text. */
 export const DEFAULT_STOP_REASON = 'The human asked you to stop and wait.';
+
+/**
+ * What the timeline prints on a comment.
+ *
+ * The badge used to print the wire name, so a human who chose "Change course" read
+ * "STEER" two lines below it and had to work out that these were the same thing.
+ * `answer` is named here rather than in the choice list because it is never chosen:
+ * it comes from the buttons on a question the agent asked.
+ */
+const KIND_BADGES: Record<CommentKind, string> = {
+  steer: 'course change',
+  fyi: 'context',
+  stop: 'stop',
+  answer: 'answer',
+};
+
+export function commentKindLabel(kind: CommentKind): string {
+  return KIND_BADGES[kind];
+}

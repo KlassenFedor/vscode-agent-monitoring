@@ -270,7 +270,7 @@ async function promptForComment(model: WorkspaceModel, sessionId?: string): Prom
     })),
     // Anything that takes the focus — a panel refreshing, a notification — would
     // otherwise dismiss the pick before the human has read the options.
-    { title: 'What is this comment?', ignoreFocusOut: true },
+    { title: 'How should the agent treat this?', ignoreFocusOut: true },
   );
   if (!picked) return;
 

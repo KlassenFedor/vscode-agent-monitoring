@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { openKindFor } from '../src/core/artifacts.js';
 import type { SessionView } from '../src/core/model.js';
 import { planNotification, sessionChoices } from '../src/core/notify.js';
-import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from '../src/core/kinds.js';
+import {
+  COMMENT_KIND_CHOICES,
+  DEFAULT_STOP_REASON,
+  STOP_CHOICE,
+  commentKindLabel,
+} from '../src/core/kinds.js';
 import {
   diffRows,
   escapeHtml,
@@ -257,11 +262,13 @@ describe('EXT-28: stopping the agent is an action, not a kind of remark', () => 
     expect(renderSession(view(), options)).toContain('terminal it runs in');
   });
 
-  it('explains what each kind does to the plan', () => {
+  it('says of each kind whether the agent has to obey it', () => {
+    // The one thing the choice turns on. It leads the hint rather than trailing a
+    // sentence about the plan, because it is what the human is deciding.
     const html = renderSession(view(), options);
 
-    expect(html).toContain('Overrides the plan');
-    expect(html).toContain('not expected to change');
+    expect(html).toContain('Binding: the agent applies it from its next step');
+    expect(html).toContain('Not binding: the agent takes note');
   });
 });
 
@@ -652,5 +659,32 @@ describe('EXT-31: one wording for a comment kind, not two', () => {
   it('keeps stop out of that list and names the cost on it', () => {
     expect(COMMENT_KIND_CHOICES.map((choice) => choice.kind)).not.toContain('stop');
     expect(STOP_CHOICE.detail).toContain('terminal it runs in');
+  });
+
+  it('badges a comment in the timeline with the wording it was sent under', () => {
+    // The badge used to print the name from the file, so a comment chosen as "Change
+    // course" came back as "STEER" and the two read as different things.
+    const html = renderRows(
+      renderUpdate(
+        view({
+          comments: [
+            { seq: 1, ts: '2026-08-13T10:00:05.000Z', kind: 'steer', text: 'careful' },
+            { seq: 2, ts: '2026-08-13T10:00:06.000Z', kind: 'fyi', text: 'ci is red already' },
+          ],
+        }),
+      ).rows,
+    );
+
+    expect(html).toContain('<span class="kind">course change</span>');
+    expect(html).toContain('<span class="kind">context</span>');
+    expect(html).not.toContain('>steer<');
+    expect(html).not.toContain('>fyi<');
+  });
+
+  it('names the kind the human never picks', () => {
+    // `answer` reaches the timeline from the buttons on a question, so it is in no
+    // choice list and would have been the one badge left printing a wire name.
+    expect(commentKindLabel('answer')).toBe('answer');
+    expect(commentKindLabel('stop')).toBe('stop');
   });
 });

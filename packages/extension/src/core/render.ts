@@ -1,7 +1,7 @@
 import type { AgentEvent, Comment } from '@agent-monitor/protocol';
 
 import { artifactLabel } from './artifacts.js';
-import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from './kinds.js';
+import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE, commentKindLabel } from './kinds.js';
 import type { SessionView } from './model.js';
 import { sessionLabel } from './notify.js';
 
@@ -68,7 +68,7 @@ ${renderRows(update.rows)}
   <label for="comment">Comment to the agent</label>
   <textarea id="comment" rows="3" placeholder="${escapeHtml(COMPOSER_PLACEHOLDER)}"></textarea>
   <div class="composer-actions">
-    <select id="kind" aria-label="What this comment is">
+    <select id="kind" aria-label="How the agent should treat this comment">
 ${renderKindOptions()}
     </select>
     <button id="send" type="button">Send</button>
@@ -286,7 +286,7 @@ function renderPassiveEntry(entry: SessionPulse['entries'][number]): string {
 
 function renderStandaloneComment(comment: Comment, cursorSeq: number): string {
   return `<div class="comment comment-standalone comment-${escapeHtml(comment.kind)}">
-  <span class="kind">${escapeHtml(comment.kind)}</span>
+  <span class="kind">${escapeHtml(commentKindLabel(comment.kind))}</span>
   ${renderTime(comment.ts)}
   <span class="text">${escapeHtml(comment.text)}</span>
   ${renderDelivery(comment, cursorSeq)}
@@ -295,7 +295,7 @@ function renderStandaloneComment(comment: Comment, cursorSeq: number): string {
 
 function renderComment(comment: Comment, cursorSeq: number): string {
   return `<div class="comment comment-${escapeHtml(comment.kind)}">
-  <span class="kind">${escapeHtml(comment.kind)}</span>
+  <span class="kind">${escapeHtml(commentKindLabel(comment.kind))}</span>
   ${renderTime(comment.ts)}
   <span class="text">${escapeHtml(comment.text)}</span>
   ${renderDelivery(comment, cursorSeq)}
