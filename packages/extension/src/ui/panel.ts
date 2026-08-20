@@ -130,6 +130,17 @@ export class SessionPanels {
     });
   }
 
+  /**
+   * Close the panel for one session, if it has one.
+   *
+   * Called when the session directory is deleted: `render` already refuses to touch a
+   * panel whose session is gone, so without this the human is left looking at a frozen
+   * copy of something that no longer exists.
+   */
+  close(sessionId: string): void {
+    this.#panels.get(sessionId)?.dispose();
+  }
+
   dispose(): void {
     for (const panel of this.#panels.values()) panel.dispose();
     this.#panels.clear();

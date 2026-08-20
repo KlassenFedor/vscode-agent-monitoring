@@ -73,6 +73,14 @@ export interface SessionMeta extends OpenRecord {
    * from the working directory, which is guesswork about someone else's naming scheme.
    */
   transcript_path?: string;
+  /**
+   * When the human filed this session away.
+   *
+   * Set from the UI, never by an agent: it says the human is done looking at this
+   * session, not that the work finished. The directory stays exactly where it was, so
+   * nothing that reads the bus has to know the field exists.
+   */
+  archived_at?: string;
 }
 
 /**
@@ -144,6 +152,7 @@ export function parseMeta(raw: unknown): SessionMeta {
   if (o.transcript_path !== undefined) {
     meta.transcript_path = requireString(o.transcript_path, 'meta.transcript_path', { maxLength: 4096 });
   }
+  if (o.archived_at !== undefined) meta.archived_at = requireTimestamp(o.archived_at, 'meta.archived_at');
 
   return meta;
 }

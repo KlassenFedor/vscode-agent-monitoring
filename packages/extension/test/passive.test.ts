@@ -405,6 +405,7 @@ describe('showing passive sessions next to reporting ones', () => {
     stale: false,
     waitingQuestion: null,
     status: 'working',
+    archived: false,
     ...overrides,
   });
 

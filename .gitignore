@@ -9,6 +9,7 @@ coverage/
 .venv/
 .claude/
 .codex/
+.mcp.json
 
 # Local-only notes and scratch documents (see README.md)
 docs-local/

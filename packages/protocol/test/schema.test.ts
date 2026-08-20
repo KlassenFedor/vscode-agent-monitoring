@@ -104,6 +104,15 @@ describe('parseMeta and parseCursor', () => {
     expect(() => parseMeta({ ...baseMeta, agent: 'gemini' })).toThrow(/meta\.agent/);
   });
 
+  it('takes archived_at only as a timestamp', () => {
+    expect(parseMeta({ ...baseMeta, archived_at: '2026-08-20T09:00:00Z' }).archived_at).toBe(
+      '2026-08-20T09:00:00.000Z',
+    );
+    expect(parseMeta(baseMeta)).not.toHaveProperty('archived_at');
+    expect(() => parseMeta({ ...baseMeta, archived_at: true })).toThrow(/meta\.archived_at/);
+    expect(() => parseMeta({ ...baseMeta, archived_at: 'yesterday' })).toThrow(/meta\.archived_at/);
+  });
+
   it('allows a zero cursor but not a negative one', () => {
     expect(parseCursor({ inbox_seq: 0, updated_at: '2026-01-01T00:00:00.000Z' }).inbox_seq).toBe(0);
     expect(() => parseCursor({ inbox_seq: -1, updated_at: '2026-01-01T00:00:00.000Z' })).toThrow(

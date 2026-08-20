@@ -95,6 +95,142 @@ export async function setupWorkspace(paths: SetupPaths, options: SetupOptions = 
   return report;
 }
 
+export interface SetupIssue {
+  /** The configuration file naming a program that is not there. */
+  file: string;
+  /** The path that does not resolve. */
+  program: string;
+}
+
+/**
+ * Find configuration this extension wrote that now points at nothing.
+ *
+ * Setup writes absolute paths, and two of them move on their own: the extension
+ * directory changes on every extension upgrade, and VS Code's bundled Node lives under
+ * a build-id directory that is replaced on every VS Code update. Either one leaves the
+ * agents running commands that fail — a Stop hook reporting `node: not found`, or an
+ * MCP server that never starts, which is the same failure with nobody to report it.
+ *
+ * Only entries carrying our ownership marker are examined; a program the human
+ * configured is their business.
+ */
+export async function findBrokenSetup(
+  paths: Pick<SetupPaths, 'root' | 'codexConfig'>,
+  exists: (file: string) => Promise<boolean> = fileExists,
+): Promise<SetupIssue[]> {
+  const issues: SetupIssue[] = [];
+
+  const check = async (file: string, programs: readonly string[]): Promise<void> => {
+    for (const program of programs) {
+      if (program !== '' && !(await exists(program))) issues.push({ file, program });
+    }
+  };
+
+  const mcpFile = path.join(paths.root, '.mcp.json');
+  const mcp = (await readJsonOrNull(mcpFile)) as { mcpServers?: Record<string, unknown> } | null;
+  const server = mcp?.mcpServers?.[OWNERSHIP_MARKER] as { command?: unknown; args?: unknown } | undefined;
+  if (server) {
+    await check(mcpFile, programsOf(server.command, server.args));
+  }
+
+  const claudeFile = path.join(paths.root, '.claude', 'settings.json');
+  const claude = (await readJsonOrNull(claudeFile)) as { hooks?: Record<string, HookEntry[]> } | null;
+  for (const entries of Object.values(claude?.hooks ?? {})) {
+    for (const entry of entries) {
+      if (!isOurs(entry)) continue;
+      for (const hook of entry.hooks ?? []) {
+        await check(claudeFile, splitCommand(hook.command).slice(0, 2));
+      }
+    }
+  }
+
+  if (paths.codexConfig) {
+    const toml = (await readTextOrNull(paths.codexConfig)) ?? '';
+    await check(paths.codexConfig, codexPrograms(toml));
+  }
+
+  return issues;
+}
+
+function programsOf(command: unknown, args: unknown): string[] {
+  const first = Array.isArray(args) && typeof args[0] === 'string' ? [args[0]] : [];
+  return [...(typeof command === 'string' ? [command] : []), ...first];
+}
+
+/** The node binary and the bundle out of our two entries in `~/.codex/config.toml`. */
+function codexPrograms(toml: string): string[] {
+  const programs: string[] = [];
+
+  const block = toml.split(`[mcp_servers.${OWNERSHIP_MARKER}]`)[1]?.split('\n[')[0];
+  if (block !== undefined) {
+    const command = /^\s*command\s*=\s*("(?:[^"\\]|\\.)*")/m.exec(block);
+    const args = /^\s*args\s*=\s*\[\s*("(?:[^"\\]|\\.)*")/m.exec(block);
+    for (const match of [command, args]) {
+      if (match?.[1]) programs.push(JSON.parse(match[1]) as string);
+    }
+  }
+
+  const notify = /^\s*notify\s*=\s*\[\s*("(?:[^"\\]|\\.)*")\s*,\s*("(?:[^"\\]|\\.)*")/m.exec(toml);
+  if (notify && toml.includes(HOOK_OWNERSHIP_FLAG)) {
+    for (const token of [notify[1], notify[2]]) {
+      if (token) programs.push(JSON.parse(token) as string);
+    }
+  }
+
+  return programs;
+}
+
+/**
+ * Split a hook command line the way a shell would, for the quoting `quote()` produces.
+ *
+ * Only what we write has to survive this: a program path, possibly quoted because it
+ * contains a space, followed by plain arguments.
+ */
+export function splitCommand(command: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quoted = false;
+  let started = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (char === '\\' && quoted && command[index + 1] === '"') {
+      current += '"';
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+      started = true;
+    } else if (!quoted && /\s/.test(char ?? '')) {
+      if (started) tokens.push(current);
+      current = '';
+      started = false;
+    } else {
+      current += char;
+      started = true;
+    }
+  }
+  if (started) tokens.push(current);
+
+  return tokens;
+}
+
+async function fileExists(file: string): Promise<boolean> {
+  try {
+    return (await fs.stat(file)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** Like `readJson`, but a file we cannot parse is simply not our problem here. */
+async function readJsonOrNull(file: string): Promise<unknown | null> {
+  try {
+    return await readJson(file);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Has this workspace been wired up yet?
  *

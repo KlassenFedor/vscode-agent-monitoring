@@ -38,6 +38,21 @@ describe('SessionStore.init', () => {
     expect(patched).toMatchObject({ status: 'done', title: 'refactor parser', vendor_hint: 'kept' });
     expect(patched.updated_at > patched.started_at).toBe(true);
   });
+
+  it('PROTO-50: a bookkeeping patch neither ages the session nor leaves a cleared field behind', async () => {
+    const { root, store, clock } = await openSession();
+    const started = (await store.readMeta())?.updated_at;
+    clock.advance(60_000);
+
+    const archived = await store.patchMeta({ archived_at: clock.iso() }, { touch: false });
+    expect(archived.updated_at).toBe(started);
+    expect(archived.archived_at).toBeTypeOf('string');
+
+    // `undefined` is how a flag is cleared: the merge keeps the key, JSON drops it.
+    const restored = await store.patchMeta({ archived_at: undefined }, { touch: false });
+    expect(restored).not.toHaveProperty('archived_at');
+    expect(JSON.parse(await fs.readFile(metaPath(root, 'sess-1'), 'utf8'))).not.toHaveProperty('archived_at');
+  });
 });
 
 describe('SessionStore events and comments', () => {

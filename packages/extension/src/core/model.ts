@@ -11,6 +11,8 @@ import {
   type SessionStatus,
 } from '@agent-monitor/protocol';
 
+import { archiveSession, deleteSession, unarchiveSession } from './manage.js';
+
 export interface SessionView {
   id: string;
   meta: SessionMeta | null;
@@ -26,6 +28,8 @@ export interface SessionView {
   /** Set when the agent is blocked on a question and cannot proceed without an answer. */
   waitingQuestion: AgentEvent | null;
   status: SessionStatus;
+  /** Filed away by the human: still on disk, out of the way in the list. */
+  archived: boolean;
 }
 
 export interface WorkspaceSnapshot {
@@ -108,11 +112,15 @@ export class WorkspaceModel {
     }
 
     views.sort(compareSessions);
+    // Archived sessions are still listed, but they stop counting: the status bar and the
+    // notifications exist to interrupt, and a session the human has put away is the one
+    // statement that interrupting is unwanted.
+    const active = views.filter((view) => !view.archived);
     this.#snapshot = {
       root: this.root,
       sessions: views,
-      unreadTotal: views.reduce((total, view) => total + view.unread.length, 0),
-      waitingCount: views.filter((view) => view.waitingQuestion !== null).length,
+      unreadTotal: active.reduce((total, view) => total + view.unread.length, 0),
+      waitingCount: active.filter((view) => view.waitingQuestion !== null).length,
     };
     return this.#snapshot;
   }
@@ -131,6 +139,29 @@ export class WorkspaceModel {
       ...(input.replyTo === undefined ? {} : { reply_to: input.replyTo }),
       author: 'human',
     });
+  }
+
+  /**
+   * Take a session out of the way, or put it back.
+   *
+   * The snapshot is rebuilt here rather than left to the next watcher tick: this is a
+   * click, and a list that keeps showing the old state for a second reads as a click
+   * that did not land.
+   */
+  async setArchived(sessionId: string, archived: boolean): Promise<WorkspaceSnapshot> {
+    const options = { clock: this.#clock };
+    if (archived) await archiveSession(this.root, sessionId, options);
+    else await unarchiveSession(this.root, sessionId, options);
+    return this.refresh();
+  }
+
+  /** Delete the session directory. Irreversible; the caller confirms. */
+  async remove(sessionId: string): Promise<WorkspaceSnapshot> {
+    await deleteSession(this.root, sessionId);
+    // Drop the cached offsets too: a session id can come back — the agent that owned it
+    // is still running — and reading a new file from an old offset loses its start.
+    this.#sessions.delete(sessionId);
+    return this.refresh();
   }
 
   async #readSession(id: string, state: SessionState): Promise<SessionView> {
@@ -162,6 +193,7 @@ export class WorkspaceModel {
       stale: this.#isStale(status, lastActivityAt),
       waitingQuestion: findWaitingQuestion(state.events, status),
       status,
+      archived: typeof meta?.archived_at === 'string',
     };
   }
 
@@ -202,6 +234,9 @@ function latestTimestamp(
 /** Sessions that need attention first, then the most recently active. */
 function compareSessions(a: SessionView, b: SessionView): number {
   const rank = (view: SessionView): number => {
+    // Tested before everything else, and ranked below it: an archived session waiting
+    // on a question must not climb back to the top of the list it was taken out of.
+    if (view.archived) return 5;
     if (view.waitingQuestion) return 0;
     if (view.unread.length > 0) return 1;
     if (view.status === 'done') return 4;

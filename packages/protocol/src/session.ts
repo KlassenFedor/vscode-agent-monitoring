@@ -151,14 +151,25 @@ export class SessionStore {
   /**
    * Read-modify-write of `meta.json` under a lock, since the agent (status changes)
    * and the extension (title edits) can both touch it.
+   *
+   * A field set to `undefined` is erased, from the returned record as well as from the
+   * file. That is how a flag gets cleared again — `archived_at` has no "false" to write —
+   * and dropping the key on both sides keeps what a caller reads back identical to what
+   * the next reader will find on disk.
+   *
+   * @param options.touch Whether this counts as session activity. Defaults to true.
+   *   A bookkeeping write by the human — filing the session away — must not: it would
+   *   move `updated_at`, and with it the session's place in the list, its staleness and
+   *   its age for rotation. Nothing about the agent's work changed.
    */
-  async patchMeta(patch: Partial<SessionMeta>): Promise<SessionMeta> {
+  async patchMeta(patch: Partial<SessionMeta>, options: { touch?: boolean } = {}): Promise<SessionMeta> {
     const file = metaPath(this.root, this.sessionId);
     return this.#withLock(file, async () => {
       const current = await this.readMeta();
       if (!current) throw new Error(`session ${this.sessionId} has no ${file}; call init() first`);
 
-      const merged = parseMeta({ ...current, ...patch, updated_at: this.#clock.iso() });
+      const updated_at = options.touch === false ? current.updated_at : this.#clock.iso();
+      const merged = parseMeta(withoutUndefined({ ...current, ...patch, updated_at }));
       await writeJsonAtomic(file, merged);
       return merged;
     });
@@ -236,6 +247,10 @@ export class SessionStore {
     const options = this.#lockTimeoutMs === undefined ? {} : { timeoutMs: this.#lockTimeoutMs };
     return withFileLock(lockPathFor(target), fn, options);
   }
+}
+
+function withoutUndefined(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
 /**

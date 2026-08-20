@@ -5,11 +5,13 @@ import { makeWorkspace } from '@agent-monitor/testkit';
 import { describe, expect, it } from 'vitest';
 
 import {
+  findBrokenSetup,
   isSetUp,
   MARKER_END,
   MARKER_START,
   replaceTomlBlock,
   setupWorkspace,
+  splitCommand,
   writeMarkerBlock,
   type SetupPaths,
 } from '../src/core/setup.js';
@@ -350,3 +352,87 @@ async function listFiles(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true, recursive: true });
   return entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
 }
+
+describe('EXT-38: configuration that has stopped resolving', () => {
+  /** Only the paths handed in exist; everything else is gone. */
+  function only(...present: string[]): (file: string) => Promise<boolean> {
+    return async (file) => present.includes(file);
+  }
+
+  it('says nothing about a setup whose programs are all there', async () => {
+    const paths = await makeSetup();
+    await setupWorkspace(paths);
+
+    const issues = await findBrokenSetup(paths, only(paths.node, paths.hook, paths.mcpServer));
+
+    expect(issues).toEqual([]);
+  });
+
+  it('names the node VS Code deleted, in every file that mentions it', async () => {
+    // The failure this exists for: VS Code updates, the build-id directory under
+    // `.vscode-server/bin/` is replaced, and every hook the agent fires answers
+    // `/bin/sh: 1: …/node: not found` with nothing on screen tying it to this extension.
+    const node = '/home/u/.vscode-server/bin/a5b5009/node';
+    const paths = await makeSetup({ node });
+    await setupWorkspace(paths);
+
+    const issues = await findBrokenSetup(paths, only(paths.hook, paths.mcpServer));
+
+    expect(issues.map((issue) => issue.program)).toEqual(Array(issues.length).fill(node));
+    expect(new Set(issues.map((issue) => issue.file))).toEqual(
+      new Set([
+        path.join(paths.root, '.mcp.json'),
+        path.join(paths.root, '.claude', 'settings.json'),
+        paths.codexConfig,
+      ]),
+    );
+  });
+
+  it('names a bundle left behind by an extension upgrade', async () => {
+    const paths = await makeSetup();
+    await setupWorkspace(paths);
+
+    const issues = await findBrokenSetup(paths, only(paths.node, paths.mcpServer));
+
+    expect(issues.map((issue) => issue.program)).toContain(paths.hook);
+    expect(issues.map((issue) => issue.program)).not.toContain(paths.mcpServer);
+  });
+
+  it("leaves the human's own hooks alone", async () => {
+    const paths = await makeSetup();
+    const settings = path.join(paths.root, '.claude', 'settings.json');
+    await fs.mkdir(path.dirname(settings), { recursive: true });
+    await fs.writeFile(
+      settings,
+      JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: '/gone/their-own-script.sh' }] }] },
+      }),
+    );
+    await setupWorkspace(paths);
+
+    const issues = await findBrokenSetup(paths, only(paths.node, paths.hook, paths.mcpServer));
+
+    expect(issues).toEqual([]);
+  });
+
+  it('reports nothing for a workspace that was never set up', async () => {
+    const paths = await makeSetup();
+
+    expect(await findBrokenSetup(paths, only())).toEqual([]);
+  });
+
+  it('reads the program back out of a quoted command', () => {
+    expect(splitCommand('/usr/bin/node /ext/hook.cjs stop --agent-monitor')).toEqual([
+      '/usr/bin/node',
+      '/ext/hook.cjs',
+      'stop',
+      '--agent-monitor',
+    ]);
+    expect(splitCommand('"C:\\Program Files\\nodejs\\node.exe" "C:\\ext\\hook.cjs" stop')).toEqual([
+      'C:\\Program Files\\nodejs\\node.exe',
+      'C:\\ext\\hook.cjs',
+      'stop',
+    ]);
+    expect(splitCommand('')).toEqual([]);
+  });
+});

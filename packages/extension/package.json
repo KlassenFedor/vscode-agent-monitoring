@@ -83,34 +83,79 @@
       {
         "command": "agentMonitor.openTranscript",
         "title": "Agent Monitor: Open Transcript"
+      },
+      {
+        "command": "agentMonitor.archiveSession",
+        "title": "Agent Monitor: Archive Session",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "agentMonitor.unarchiveSession",
+        "title": "Agent Monitor: Restore Session",
+        "icon": "$(history)"
+      },
+      {
+        "command": "agentMonitor.deleteSession",
+        "title": "Agent Monitor: Delete Session",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
       "view/item/context": [
         {
           "command": "agentMonitor.openSession",
-          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|archivedSession)/",
           "group": "navigation@1"
         },
         {
           "command": "agentMonitor.comment",
-          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|archivedSession)/",
           "group": "navigation@2"
         },
         {
           "command": "agentMonitor.stopSession",
-          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|archivedSession)/",
           "group": "navigation@3"
         },
         {
           "command": "agentMonitor.openTranscript",
-          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|passiveSession)/",
+          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|archivedSession|passiveSession)/",
           "group": "other@1"
         },
         {
           "command": "agentMonitor.setupWorkspace",
           "when": "view == agentMonitor.sessions && viewItem == agentMonitor.passiveSession",
           "group": "other@2"
+        },
+        {
+          "command": "agentMonitor.archiveSession",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "group": "inline@1"
+        },
+        {
+          "command": "agentMonitor.unarchiveSession",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.archivedSession",
+          "group": "inline@1"
+        },
+        {
+          "command": "agentMonitor.deleteSession",
+          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|archivedSession)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "agentMonitor.archiveSession",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.session",
+          "group": "manage@1"
+        },
+        {
+          "command": "agentMonitor.unarchiveSession",
+          "when": "view == agentMonitor.sessions && viewItem == agentMonitor.archivedSession",
+          "group": "manage@1"
+        },
+        {
+          "command": "agentMonitor.deleteSession",
+          "when": "view == agentMonitor.sessions && viewItem =~ /agentMonitor\\.(session|archivedSession)/",
+          "group": "manage@2"
         }
       ],
       "view/title": [

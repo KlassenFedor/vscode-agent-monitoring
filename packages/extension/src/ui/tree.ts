@@ -11,7 +11,8 @@ import { formatTime } from '../core/render.js';
 export type Node =
   | { kind: 'session'; session: SessionView }
   | { kind: 'event'; session: SessionView; event: AgentEvent }
-  | { kind: 'passive'; passive: PassiveSessionView };
+  | { kind: 'passive'; passive: PassiveSessionView }
+  | { kind: 'archive'; sessions: readonly SessionView[] };
 
 const RECENT_EVENTS = 20;
 
@@ -34,6 +35,7 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<Node> {
   getTreeItem(node: Node): vscode.TreeItem {
     if (node.kind === 'session') return sessionItem(node.session, this.pulses().get(node.session.id));
     if (node.kind === 'passive') return passiveItem(node.passive);
+    if (node.kind === 'archive') return archiveItem(node.sessions);
 
     const item = new vscode.TreeItem(node.event.title, vscode.TreeItemCollapsibleState.None);
     item.description = `#${node.event.seq}`;
@@ -48,10 +50,22 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<Node> {
 
   getChildren(node?: Node): Node[] {
     if (!node) {
+      const all = this.model.snapshot().sessions;
+      const archived = all.filter((session) => session.archived);
+
       return [
-        ...this.model.snapshot().sessions.map((session) => ({ kind: 'session', session }) as const),
+        ...all
+          .filter((session) => !session.archived)
+          .map((session) => ({ kind: 'session', session }) as const),
         ...this.passiveSessions().map((passive) => ({ kind: 'passive', passive }) as const),
+        // One row instead of a run of them, and only once there is something in it: an
+        // empty folder is a permanent reminder of a decision already made.
+        ...(archived.length === 0 ? [] : [{ kind: 'archive', sessions: archived } as const]),
       ];
+    }
+
+    if (node.kind === 'archive') {
+      return node.sessions.map((session) => ({ kind: 'session', session }) as const);
     }
     if (node.kind !== 'session') return [];
 
@@ -82,14 +96,18 @@ function sessionItem(session: SessionView, pulse?: PassiveSessionView): vscode.T
   const bits: string[] = [session.status];
   if (session.unread.length > 0) bits.push(`${session.unread.length} unread`);
   if (session.events.length === 0 && pulse?.currentTool) bits.push(pulse.currentTool);
-  if (stale) bits.push('stale');
+  // Not for an archived one: "stale" is a warning that the agent may be stuck, and
+  // nobody is waiting on a session that has been put away.
+  if (stale && !session.archived) bits.push('stale');
   // Promised by DESIGN.md §6 and missing: "is it alive" is a question about a clock.
   if (lastAt !== null) bits.push(formatTime(lastAt));
 
   item.description = bits.join(' · ');
   item.iconPath = new vscode.ThemeIcon(iconForSession(session, stale));
   item.tooltip = sessionTooltip(session, pulse, lastAt);
-  item.contextValue = 'agentMonitor.session';
+  // Two values, because the buttons on the row differ: an archived session is put back,
+  // not filed away again (`view/item/context` in package.json).
+  item.contextValue = session.archived ? 'agentMonitor.archivedSession' : 'agentMonitor.session';
   item.command = {
     command: 'agentMonitor.openSession',
     title: 'Open session',
@@ -113,6 +131,22 @@ function sessionTooltip(
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+/**
+ * The one row that stands for every session the human has put away.
+ *
+ * A folder rather than a filter switch: the sessions are still there, still readable,
+ * and still one click from coming back. Hiding them behind a setting would make
+ * "archive" mean "disappear", which is what the delete button is for.
+ */
+function archiveItem(sessions: readonly SessionView[]): vscode.TreeItem {
+  const item = new vscode.TreeItem('Archived', vscode.TreeItemCollapsibleState.Collapsed);
+  item.description = `${sessions.length}`;
+  item.iconPath = new vscode.ThemeIcon('archive');
+  item.tooltip = 'Sessions you have filed away. They are still on disk and can be restored.';
+  item.contextValue = 'agentMonitor.archive';
+  return item;
 }
 
 /**
@@ -162,6 +196,7 @@ function labelFor(session: SessionView, pulse?: PassiveSessionView): string {
 }
 
 function iconForSession(session: SessionView, stale: boolean): string {
+  if (session.archived) return 'archive';
   if (session.waitingQuestion) return 'question';
   if (session.status === 'done') return 'pass';
   if (session.status === 'error') return 'error';

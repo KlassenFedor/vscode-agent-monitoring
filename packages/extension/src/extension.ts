@@ -1,20 +1,26 @@
+import { execFile } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { promisify } from 'node:util';
 
 import * as vscode from 'vscode';
 
 import type { CommentKind } from '@agent-monitor/protocol';
 
 import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from './core/kinds.js';
+import { sessionFootprint, type SessionFootprint } from './core/manage.js';
 import { WorkspaceModel, type SessionView } from './core/model.js';
+import { resolveNodePath } from './core/node-path.js';
 import { planNotification, sessionChoices, sessionLabel } from './core/notify.js';
 import { mergePassive } from './core/passive/merge.js';
 import { PassiveTracker, type KnownTranscript, type PassiveSessionView } from './core/passive/tracker.js';
 import { rotateSessions } from './core/rotate.js';
-import { isSetUp, setupWorkspace } from './core/setup.js';
+import { findBrokenSetup, isSetUp, setupWorkspace, type SetupPaths } from './core/setup.js';
 import { SessionWatcher } from './core/watcher.js';
 import { SessionPanels } from './ui/panel.js';
 import { SessionTreeProvider, type Node } from './ui/tree.js';
+
+const run = promisify(execFile);
 
 export function activate(context: vscode.ExtensionContext): void {
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -61,6 +67,8 @@ export function activate(context: vscode.ExtensionContext): void {
     const onQuestion = vscode.workspace.getConfiguration('agentMonitor').get<boolean>('notifyOnQuestion');
 
     for (const session of snapshot.sessions) {
+      // An archived session is the human saying they are done being interrupted by it.
+      if (session.archived) continue;
       notify(planNotification(session, previous.get(session.id), { onQuestion }), panels, model);
     }
     previous = new Map(snapshot.sessions.map((session) => [session.id, session]));
@@ -97,10 +105,20 @@ export function activate(context: vscode.ExtensionContext): void {
       void openTranscript(target);
     }),
     vscode.commands.registerCommand('agentMonitor.setupWorkspace', () => void runSetup(context, root)),
+    vscode.commands.registerCommand('agentMonitor.archiveSession', (target?: Node) => {
+      void setArchived(model, tree, sessionIdOf(target), true);
+    }),
+    vscode.commands.registerCommand('agentMonitor.unarchiveSession', (target?: Node) => {
+      void setArchived(model, tree, sessionIdOf(target), false);
+    }),
+    vscode.commands.registerCommand('agentMonitor.deleteSession', (target?: Node) => {
+      void deleteSession(model, tree, panels, sessionIdOf(target));
+    }),
   );
 
   void watcher.start();
   void refresh();
+  void offerRepair(context, root);
 
   // Once per window, not per refresh: old sessions do not age fast enough to be worth
   // checking again, and a delete racing the watcher would only make noise.
@@ -119,7 +137,7 @@ function knownTranscripts(sessions: readonly SessionView[]): KnownTranscript[] {
 }
 
 function updateStatus(status: vscode.StatusBarItem, sessions: readonly SessionView[]): void {
-  const live = sessions.filter((session) => session.status !== 'done');
+  const live = sessions.filter((session) => session.status !== 'done' && !session.archived);
   if (live.length === 0) {
     status.hide();
     return;
@@ -177,7 +195,9 @@ function sessionIdOf(target?: Node): string | undefined {
  * pick returns an id, and a single running session skips the question entirely.
  */
 async function pickSession(model: WorkspaceModel, title: string): Promise<string | undefined> {
-  const sessions = model.snapshot().sessions.filter((session) => session.status !== 'done');
+  const sessions = model
+    .snapshot()
+    .sessions.filter((session) => session.status !== 'done' && !session.archived);
   if (sessions.length === 0) {
     void vscode.window.showInformationMessage('Agent Monitor: no running sessions in this workspace.');
     return undefined;
@@ -293,10 +313,160 @@ async function post(
   try {
     await model.postComment(sessionId, input);
   } catch (error) {
+    void vscode.window.showErrorMessage(`Agent Monitor could not save your comment: ${describeError(error)}`);
+  }
+}
+
+/**
+ * Take a session out of the list, or put it back.
+ *
+ * Nothing is asked first, and nothing is lost: the directory stays exactly where it is,
+ * and the row moves to the Archived folder one click away.
+ */
+async function setArchived(
+  model: WorkspaceModel,
+  tree: SessionTreeProvider,
+  sessionId: string | undefined,
+  archived: boolean,
+): Promise<void> {
+  if (!sessionId) return;
+  try {
+    await model.setArchived(sessionId, archived);
+    tree.refresh();
+  } catch (error) {
     void vscode.window.showErrorMessage(
-      `Agent Monitor could not save your comment: ${error instanceof Error ? error.message : String(error)}`,
+      `Agent Monitor could not ${archived ? 'archive' : 'restore'} the session: ${describeError(error)}`,
     );
   }
+}
+
+/**
+ * Delete a session directory, after saying what that costs.
+ *
+ * The confirmation counts the actual files rather than saying "this cannot be undone"
+ * and leaving the human to guess the size of it — reports and artefacts are the whole
+ * record of a run, and there is no copy anywhere else. A session an agent is still
+ * pointed at is called out by name: deleting it does not stop the agent, which will
+ * simply start the directory again from empty.
+ */
+async function deleteSession(
+  model: WorkspaceModel,
+  tree: SessionTreeProvider,
+  panels: SessionPanels,
+  sessionId: string | undefined,
+): Promise<void> {
+  if (!sessionId) return;
+
+  const session = model.session(sessionId);
+  const footprint = await sessionFootprint(model.root, sessionId).catch(() => null);
+  const remove = 'Delete';
+
+  const confirmed = await vscode.window.showWarningMessage(
+    `Delete "${session ? sessionLabel(session) : sessionId}" for good?`,
+    { modal: true, detail: deletionDetail(footprint) },
+    remove,
+  );
+  if (confirmed !== remove) return;
+
+  try {
+    await model.remove(sessionId);
+    panels.close(sessionId);
+    tree.refresh();
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `Agent Monitor could not delete the session: ${describeError(error)}`,
+    );
+  }
+}
+
+function deletionDetail(footprint: SessionFootprint | null): string {
+  if (!footprint) return 'Its directory under .agent-monitor/ is removed. This cannot be undone.';
+
+  const counts = [
+    `${footprint.events} report(s)`,
+    `${footprint.comments} comment(s)`,
+    `${footprint.artifacts} artefact(s)`,
+  ].join(', ');
+
+  return [
+    `${counts} are removed from .agent-monitor/. This cannot be undone.`,
+    footprint.current
+      ? 'An agent is still pointed at this session. Deleting it does not stop the agent — it starts a fresh, empty directory on its next report.'
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Everything Setup writes into the agents' configuration, with the Node binary chosen
+ * rather than assumed.
+ *
+ * `process.execPath` used to go in here, and it is wrong on both kinds of install: on a
+ * remote host it is `~/.vscode-server/bin/<commit>/node`, which VS Code deletes on its
+ * next update, and on the desktop it is VS Code's own Electron binary, which does not
+ * run scripts at all. See `core/node-path.ts`.
+ */
+async function setupPaths(
+  context: vscode.ExtensionContext,
+  root: string,
+): Promise<{ paths: SetupPaths; warning?: string }> {
+  const dist = path.join(context.extensionPath, 'dist');
+  const node = await resolveNodePath({
+    execPath: process.execPath,
+    pathEnv: process.env.PATH,
+    majorVersion: nodeMajorVersion,
+  });
+
+  const paths: SetupPaths = {
+    root,
+    node: node.path,
+    mcpServer: path.join(dist, 'mcp-server.cjs'),
+    hook: path.join(dist, 'hook.cjs'),
+    codexConfig: path.join(os.homedir(), '.codex', 'config.toml'),
+  };
+
+  return { paths, ...(node.warning === undefined ? {} : { warning: node.warning }) };
+}
+
+/** `node --version` for a candidate binary, or null when it will not run. */
+async function nodeMajorVersion(file: string): Promise<number | null> {
+  try {
+    const { stdout } = await run(file, ['--version'], { timeout: 3_000 });
+    const major = /^v(\d+)\./.exec(stdout.trim())?.[1];
+    return major === undefined ? null : Number(major);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Notice configuration of ours that has stopped resolving, and offer to repair it.
+ *
+ * Both absolute paths Setup writes move on their own — the extension directory on every
+ * extension upgrade, VS Code's bundled Node on every VS Code update — and when they do,
+ * the failure surfaces in the agent's terminal as `node: not found` from a hook, with
+ * nothing on screen connecting it to this extension. Repair is Setup: it rewrites only
+ * its own entries.
+ */
+async function offerRepair(context: vscode.ExtensionContext, root: string): Promise<void> {
+  if (!(await isSetUp(root))) return;
+
+  const codexConfig = path.join(os.homedir(), '.codex', 'config.toml');
+  const issues = await findBrokenSetup({ root, codexConfig });
+  if (issues.length === 0) return;
+
+  const repair = 'Repair';
+  const choice = await vscode.window.showWarningMessage(
+    `Agent Monitor: ${issues[0]?.program} is gone, so the agents' hooks and MCP server cannot start. This usually means VS Code updated.`,
+    repair,
+    'Not now',
+  );
+  if (choice === repair) await runSetup(context, root);
 }
 
 /**
@@ -308,14 +478,7 @@ async function post(
  * with the writes turned off, so it cannot drift from what actually happens.
  */
 async function runSetup(context: vscode.ExtensionContext, root: string): Promise<void> {
-  const dist = path.join(context.extensionPath, 'dist');
-  const paths = {
-    root,
-    node: process.execPath,
-    mcpServer: path.join(dist, 'mcp-server.cjs'),
-    hook: path.join(dist, 'hook.cjs'),
-    codexConfig: path.join(os.homedir(), '.codex', 'config.toml'),
-  };
+  const { paths, warning } = await setupPaths(context, root);
 
   const plan = await setupWorkspace(paths, { dryRun: true });
   if (plan.changed.length === 0 && plan.notes.length === 0) {
@@ -331,9 +494,11 @@ async function runSetup(context: vscode.ExtensionContext, root: string): Promise
       modal: true,
       detail: [
         plan.changed.map((file) => `• ${file}`).join('\n'),
+        `\nThe agents will run them with ${paths.node}.`,
         outside.length === 0
           ? ''
           : '\nThe Codex config lives outside this workspace and is shared by all your projects. A backup is written next to it.',
+        warning === undefined ? '' : `\n${warning}`,
       ]
         .filter(Boolean)
         .join('\n'),
@@ -349,8 +514,9 @@ async function runSetup(context: vscode.ExtensionContext, root: string): Promise
       ? 'Agent Monitor: already set up, nothing to change.'
       : `Agent Monitor: updated ${report.changed.length} file(s).`;
 
-  if (report.notes.length > 0) {
-    void vscode.window.showWarningMessage(`${summary} ${report.notes.join(' ')}`);
+  const complaints = [...report.notes, ...(warning === undefined ? [] : [warning])];
+  if (complaints.length > 0) {
+    void vscode.window.showWarningMessage(`${summary} ${complaints.join(' ')}`);
   } else {
     void vscode.window.showInformationMessage(summary);
   }

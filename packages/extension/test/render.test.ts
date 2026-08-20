@@ -30,6 +30,7 @@ function view(overrides: Partial<SessionView> = {}): SessionView {
     stale: false,
     waitingQuestion: null,
     status: 'working',
+    archived: false,
     ...overrides,
   };
 }
