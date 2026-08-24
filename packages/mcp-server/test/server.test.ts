@@ -62,6 +62,18 @@ describe('MCP surface', () => {
     }
   });
 
+  it("MCP-01: every tool that writes to the timeline asks for the human's own language", async () => {
+    const { agent } = await connect();
+
+    const tools = await agent.listTools();
+    const speaking = ['report_progress', 'publish_artifact', 'ask_user', 'set_status'];
+
+    for (const name of speaking) {
+      const tool = tools.find((candidate) => candidate.name === name);
+      expect(tool?.description, name).toContain('in the language the human uses in their own messages');
+    }
+  });
+
   it('MCP-01: every advertised tool is callable', async () => {
     const { agent } = await connect();
     expect(TOOLS).toHaveLength(5);

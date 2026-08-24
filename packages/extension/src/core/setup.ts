@@ -454,7 +454,12 @@ ${pull}- Attach the artefact itself with \`publish_artifact\` when the human wou
   a diff, a plan or a table rather than your summary of it.
 - At a real fork in the road, call \`ask_user\` instead of guessing.
 - Call \`set_status\` with \`waiting_review\` when the work wants looking at, and \`done\`
-  when you have finished.`;
+  when you have finished.
+- Write everything the human reads in the panel — report titles, phases, summaries and
+  next steps, artefact titles and notes, questions and their options, session titles —
+  in the language the human uses in their own messages and comments, not the language
+  of the code or of these instructions. Use a different language only when they have
+  explicitly asked for one.`;
 }
 
 async function readJson(file: string): Promise<unknown | null> {

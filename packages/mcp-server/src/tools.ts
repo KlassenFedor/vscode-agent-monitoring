@@ -16,6 +16,23 @@ export interface ToolDefinition {
 }
 
 /**
+ * The timeline is read by a person, not by another program.
+ *
+ * Left to itself an agent writes its reports in English whatever language the
+ * conversation is in, because the code, the tool schemas and its own system prompt
+ * all are. Naming the fields is what makes the rule stick: a general "reply in their
+ * language" gets applied to the chat answer and forgotten by the time a tool call is
+ * assembled, since a tool call does not feel like a reply.
+ */
+function inTheirLanguage(fields: string): string {
+  return [
+    `Write ${fields} in the language the human uses in their own messages and comments,`,
+    'not the language of the code or of these instructions.',
+    'Use a different language only when the human has explicitly asked for one.',
+  ].join(' ');
+}
+
+/**
  * Tool descriptions are prompt, not documentation.
  *
  * They are the only place where the agent learns when to report and what a comment
@@ -32,6 +49,7 @@ export const TOOLS: ToolDefinition[] = [
       'The reply contains any comments the human has left since your last report, so this is',
       'also how you find out that the plan has changed. Comments marked [steer] override your',
       'earlier plan and apply from your next step onwards.',
+      inTheirLanguage('title, phase, summary and next'),
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -71,6 +89,8 @@ export const TOOLS: ToolDefinition[] = [
       'Use it whenever the human would want to read the thing itself rather than your summary of it.',
       'Pass exactly one of content (inline text) or path (a file you already wrote inside the workspace).',
       'The reply gives you the reference to cite from report_progress.',
+      inTheirLanguage('title and summary'),
+      'The file itself keeps whatever form it already has.',
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -132,6 +152,7 @@ export const TOOLS: ToolDefinition[] = [
       'Use it at a real fork in the road, where guessing wrong would waste significant work.',
       'Do not use it for questions you can answer by reading the code.',
       'If nobody answers before the timeout you are told to proceed on your own judgement.',
+      inTheirLanguage('the question and the options'),
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -160,6 +181,7 @@ export const TOOLS: ToolDefinition[] = [
     description: [
       'Tell the human what state the session is in, so the sidebar is honest about whether you are working.',
       'Set "waiting_review" when you want the work looked at, and "done" when you have finished.',
+      inTheirLanguage('title'),
     ].join(' '),
     inputSchema: {
       type: 'object',

@@ -5,6 +5,7 @@ import { makeWorkspace } from '@agent-monitor/testkit';
 import { describe, expect, it } from 'vitest';
 
 import {
+  agentInstructions,
   findBrokenSetup,
   isSetUp,
   MARKER_END,
@@ -269,6 +270,14 @@ describe('EXT-10: instruction blocks in CLAUDE.md and AGENTS.md', () => {
     await writeMarkerBlock(file, 'same body');
 
     expect(await writeMarkerBlock(file, 'same body')).toBe(false);
+  });
+
+  it("tells both agents to write the timeline in the human's own language", async () => {
+    for (const agent of ['claude', 'codex'] as const) {
+      const block = agentInstructions(agent);
+      expect(block, agent).toContain('in the language the human uses in their own messages');
+      expect(block, agent).toContain('explicitly asked');
+    }
   });
 });
 
