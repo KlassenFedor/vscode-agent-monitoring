@@ -66,6 +66,11 @@ export class FakeAgent {
     return new FakeAgent(client, transport);
   }
 
+  /** What the server said about itself in the initialize reply. */
+  instructions(): string {
+    return this.#client.getInstructions() ?? '';
+  }
+
   async listTools(): Promise<ToolSummary[]> {
     const result = await this.#client.listTools();
     return result.tools.map((tool) => ({

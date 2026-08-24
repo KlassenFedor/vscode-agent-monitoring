@@ -272,6 +272,14 @@ describe('EXT-10: instruction blocks in CLAUDE.md and AGENTS.md', () => {
     expect(await writeMarkerBlock(file, 'same body')).toBe(false);
   });
 
+  it('tells both agents the log is local and what to do when a call is refused', async () => {
+    for (const agent of ['claude', 'codex'] as const) {
+      const block = agentInstructions(agent);
+      expect(block, agent).toContain('nothing is uploaded anywhere');
+      expect(block, agent).toContain('refused by your own permission');
+    }
+  });
+
   it("tells both agents to write the timeline in the human's own language", async () => {
     for (const agent of ['claude', 'codex'] as const) {
       const block = agentInstructions(agent);

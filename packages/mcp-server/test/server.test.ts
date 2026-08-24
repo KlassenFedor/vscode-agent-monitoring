@@ -62,6 +62,29 @@ describe('MCP surface', () => {
     }
   });
 
+  it('states up front that the log is local, so an approval reviewer is not guessing', async () => {
+    const { agent } = await connect();
+
+    // Codex with `approvals_reviewer` denied a publish_artifact as a transfer to an
+    // "unauthorized destination". The three facts that verdict got wrong are asserted
+    // here because they are the whole reason the field is set.
+    const instructions = agent.instructions();
+    expect(instructions).toContain('.agent-monitor/');
+    expect(instructions).toContain('no network requests');
+    expect(instructions).toContain('report_progress');
+  });
+
+  it('tells the agent what to do when its own permission rules refuse a call', async () => {
+    const { agent } = await connect();
+
+    const tools = await agent.listTools();
+    const report = tools.find((tool) => tool.name === 'report_progress');
+    const publish = tools.find((tool) => tool.name === 'publish_artifact');
+
+    expect(report?.description).toContain('refuses another call');
+    expect(publish?.description).toContain('not an upload');
+  });
+
   it("MCP-01: every tool that writes to the timeline asks for the human's own language", async () => {
     const { agent } = await connect();
 

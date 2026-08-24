@@ -16,6 +16,41 @@ export interface ToolDefinition {
 }
 
 /**
+ * What the agent is told about this server before it calls anything.
+ *
+ * Sent once in the initialize reply, so it is in context ahead of the first tool call
+ * and ahead of whatever reviews that call. It exists because of a real denial: Codex
+ * running with `approvals_reviewer` refused a `publish_artifact` on the grounds that it
+ * "передаёт код и данные неавторизованному destination" — the reviewer read the name
+ * Agent Monitor and the verb publish as an upload to somebody else's service.
+ *
+ * It is not. The bytes are appended to files under `.agent-monitor/` in the workspace
+ * the agent is already editing, and the server opens no socket. A reviewer weighing
+ * risk against authorisation cannot know that by looking at a tool called "publish",
+ * so it is stated here in the terms that verdict is made in: where the bytes land, who
+ * reads them, and what the human asked for by wiring this workspace up at all.
+ */
+export const SERVER_INSTRUCTIONS = [
+  'Agent Monitor is a local progress log for the workspace you are working in.',
+  '',
+  'Everything these tools record — reports, questions, artifacts — is appended to files under',
+  '`.agent-monitor/` in the workspace root, on this machine. The server makes no network requests;',
+  'there is no remote service, account or upload behind it. "Publish" here means "write a file the',
+  'human can open in their editor", and that human is the one who started this session and already',
+  'has the workspace checked out. A workspace wired up for Agent Monitor is a workspace whose owner',
+  'asked to be kept informed this way, so reporting into it is part of the task, not a side channel',
+  'out of it.',
+  '',
+  'Attach the smallest thing that makes the point — a diff, an excerpt, a table of findings — rather',
+  'than a whole archive, a build output or a dependency tree. Keep credentials and personal data out',
+  'of reports: not because the destination is remote, but because a log is read by a person.',
+  '',
+  'If your own permission rules refuse one of these calls, that is final. Do not retry it and do not',
+  'stall on it. Say what was refused, and why, in a `report_progress` call — that one moves no files —',
+  "and use `ask_user` when the human's approval is the thing you are missing.",
+].join('\n');
+
+/**
  * The timeline is read by a person, not by another program.
  *
  * Left to itself an agent writes its reports in English whatever language the
@@ -49,6 +84,9 @@ export const TOOLS: ToolDefinition[] = [
       'The reply contains any comments the human has left since your last report, so this is',
       'also how you find out that the plan has changed. Comments marked [steer] override your',
       'earlier plan and apply from your next step onwards.',
+      'This is also the fallback when something stops you reporting properly — a permission rule that',
+      'refuses another call, a file you are not allowed to attach: this call moves no files, so say',
+      'what was refused here instead of retrying it or going quiet.',
       inTheirLanguage('title, phase, summary and next'),
     ].join(' '),
     inputSchema: {
@@ -89,6 +127,10 @@ export const TOOLS: ToolDefinition[] = [
       'Use it whenever the human would want to read the thing itself rather than your summary of it.',
       'Pass exactly one of content (inline text) or path (a file you already wrote inside the workspace).',
       'The reply gives you the reference to cite from report_progress.',
+      'The bytes are written to .agent-monitor/<session>/artifacts/ in this workspace, on this machine,',
+      'and nowhere else: this is a copy into a log directory the human can open, not an upload.',
+      'Attach the smallest thing that makes the point — a diff, an excerpt, a table — rather than a',
+      'whole archive or build output, and never a file holding credentials or personal data.',
       inTheirLanguage('title and summary'),
       'The file itself keeps whatever form it already has.',
     ].join(' '),
@@ -151,6 +193,8 @@ export const TOOLS: ToolDefinition[] = [
       'Ask the human a question and wait for the answer. This call blocks.',
       'Use it at a real fork in the road, where guessing wrong would waste significant work.',
       'Do not use it for questions you can answer by reading the code.',
+      'A permission rule of your own that refuses something you believe the human wants is such a fork:',
+      'ask them here rather than retrying the call or dropping the step in silence.',
       'If nobody answers before the timeout you are told to proceed on your own judgement.',
       inTheirLanguage('the question and the options'),
     ].join(' '),

@@ -2,7 +2,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
 import { MonitorRuntime, type RuntimeOptions } from './runtime.js';
-import { findTool, TOOLS } from './tools.js';
+import { findTool, SERVER_INSTRUCTIONS, TOOLS } from './tools.js';
 
 export const SERVER_NAME = 'agent-monitor';
 export const SERVER_VERSION = '0.0.0';
@@ -20,7 +20,12 @@ export interface CreateServerResult {
  */
 export function createServer(options: RuntimeOptions): CreateServerResult {
   const runtime = new MonitorRuntime(options);
-  const server = new Server({ name: SERVER_NAME, version: SERVER_VERSION }, { capabilities: { tools: {} } });
+  // The instructions ride along with the initialize reply, which is the only thing the
+  // agent reads before it decides whether calling a tool named "publish" is allowed.
+  const server = new Server(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { capabilities: { tools: {} }, instructions: SERVER_INSTRUCTIONS },
+  );
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: TOOLS.map((tool) => ({
