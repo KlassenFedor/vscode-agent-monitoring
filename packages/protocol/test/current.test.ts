@@ -38,6 +38,43 @@ describe('current session pointer', () => {
     expect(laterGenerated.session_id).toBe('real-1');
   });
 
+  it('PROTO-56: a second real session id takes over, because it is a second session', async () => {
+    const root = await makeRoot();
+    // What `/clear` does: Claude Code hands the agent a fresh id and a fresh
+    // transcript, and the session-start hook claims it. Adopting the old pointer
+    // glued the new conversation onto the previous session directory — same title,
+    // same timeline, and its undelivered comments replayed into a context that had
+    // never seen them.
+    await claimCurrentSession(root, 'claude', 'before-clear', { authoritative: true });
+
+    const afterClear = await claimCurrentSession(root, 'claude', 'after-clear', { authoritative: true });
+
+    expect(afterClear.session_id).toBe('after-clear');
+    expect(await readCurrentSession(root, 'claude')).toMatchObject({ session_id: 'after-clear' });
+  });
+
+  it('PROTO-56: re-claiming the same id changes nothing, so the pointer does not churn', async () => {
+    const root = await makeRoot();
+    const clock = createManualClock('2026-08-13T10:00:00.000Z');
+    // Both channels claim at start-up, and the server re-claims whenever it is
+    // restarted. None of that is a new session.
+    const first = await claimCurrentSession(root, 'claude', 'sess-1', { authoritative: true, clock });
+
+    clock.advance(60_000);
+    const second = await claimCurrentSession(root, 'claude', 'sess-1', { authoritative: true, clock });
+
+    expect(second).toEqual(first);
+  });
+
+  it('PROTO-56: a generated id still never displaces a real one, whatever it is', async () => {
+    const root = await makeRoot();
+    await claimCurrentSession(root, 'claude', 'real-1', { authoritative: true });
+
+    const generated = await claimCurrentSession(root, 'claude', 'claude-hook-xyz', { authoritative: false });
+
+    expect(generated.session_id).toBe('real-1');
+  });
+
   it('PROTO-53: a stale pointer from an old session is replaced', async () => {
     const root = await makeRoot();
     const clock = createManualClock('2026-08-13T10:00:00.000Z');

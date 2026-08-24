@@ -50,6 +50,45 @@ describe('session-start', () => {
     expect((await harness.store.readMeta())?.transcript_path).toBe('/home/u/.claude/projects/-w/s.jsonl');
   });
 
+  it('HOOK-14: /clear starts a new session rather than continuing the previous one', async () => {
+    const harness = await makeHookHarness({ createSession: false });
+    await harness.run('session-start', { payload: { transcript_path: '/t/before.jsonl' } });
+
+    // `/clear` fires SessionStart again with a fresh id and a fresh transcript. The
+    // old pointer used to win — both claims are authoritative — so the new
+    // conversation was written into the previous session's directory, which kept its
+    // title and its timeline and only had its transcript repointed.
+    await harness.run('session-start', {
+      payload: { session_id: 'sess-2', transcript_path: '/t/after.jsonl' },
+    });
+
+    expect(await readCurrentSession(harness.root, 'claude')).toMatchObject({
+      session_id: 'sess-2',
+      authoritative: true,
+    });
+    expect((await SessionStore.open(harness.root, 'sess-1').readMeta())?.transcript_path).toBe(
+      '/t/before.jsonl',
+    );
+    expect((await SessionStore.open(harness.root, 'sess-2').readMeta())?.transcript_path).toBe(
+      '/t/after.jsonl',
+    );
+  });
+
+  it('HOOK-14: comments the previous session never delivered do not follow /clear', async () => {
+    const harness = await makeHookHarness({ createSession: false });
+    await harness.run('session-start');
+    await harness.human.comment('do not touch legacy/');
+
+    await harness.run('session-start', { payload: { session_id: 'sess-2' } });
+    const result = await harness.run('post-tool', { payload: { session_id: 'sess-2' } });
+
+    // The agent that would read it has no memory of the work it was about: the
+    // comment stays with the session it was written to, where the human can still see
+    // it sitting undelivered.
+    expect(result).toMatchObject({ stdout: '', exitCode: 0 });
+    expect(await harness.store.unreadComments()).toHaveLength(1);
+  });
+
   it('still starts a session when the agent sends no id', async () => {
     const workspace = await makeWorkspace('agent-monitor-hook-');
     try {

@@ -10,6 +10,24 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const cli = path.join(repoRoot, 'packages', 'mcp-server', 'dist', 'cli.js');
 
+/**
+ * Every session id an agent might export, blanked.
+ *
+ * `FakeAgent` spawns with the suite's own environment plus whatever the test names,
+ * and this suite is routinely run *by* Claude Code — which exports
+ * `CLAUDE_CODE_SESSION_ID`. A test that means "the server has no id of its own" was
+ * therefore only true on machines where nobody was running an agent, and silently
+ * became a test of something else everywhere else. An empty value is ignored by
+ * `resolveSessionContext` exactly like an absent one.
+ */
+const NO_AGENT_SESSION_ID = {
+  AGENT_MONITOR_SESSION_ID: '',
+  CLAUDE_CODE_SESSION_ID: '',
+  CLAUDE_SESSION_ID: '',
+  CODEX_SESSION_ID: '',
+  CODEX_THREAD_ID: '',
+} as const;
+
 let workspace: TempWorkspace | undefined;
 let agent: FakeAgent | undefined;
 
@@ -111,7 +129,7 @@ describe('stdio entry point', () => {
       args: [cli],
       cwd: workspace.root,
       // No session id in the environment, so the server would otherwise invent one.
-      env: { CLAUDECODE: '1' },
+      env: { ...NO_AGENT_SESSION_ID, CLAUDECODE: '1' },
     });
     await agent.tool('report_progress', { title: 'milestone' });
 

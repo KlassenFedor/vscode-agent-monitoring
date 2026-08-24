@@ -8,6 +8,7 @@ import * as vscode from 'vscode';
 import type { CommentKind } from '@agent-monitor/protocol';
 
 import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from './core/kinds.js';
+import { parseLabelExtras } from './core/label.js';
 import { sessionFootprint, type SessionFootprint } from './core/manage.js';
 import { WorkspaceModel, type SessionView } from './core/model.js';
 import { resolveNodePath } from './core/node-path.js';
@@ -40,16 +41,20 @@ export function activate(context: vscode.ExtensionContext): void {
     onDisabled: (reason) => void vscode.window.showWarningMessage(reason),
   });
 
+  const dismissed = new DismissedSessions(context);
+
   const tree = new SessionTreeProvider(
     model,
     () => passive,
     () => pulses,
+    () => parseLabelExtras(vscode.workspace.getConfiguration('agentMonitor').get('sessionLabelExtras')),
   );
   const panels = new SessionPanels(model, () => pulses);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   status.command = 'agentMonitor.openSession';
 
   let previous = new Map<string, SessionView>();
+  const contexts = new Map<string, boolean>();
 
   const refresh = async (): Promise<void> => {
     const snapshot = await model.refresh();
@@ -59,7 +64,9 @@ export function activate(context: vscode.ExtensionContext): void {
       snapshot.sessions,
       await tracker.refresh(knownTranscripts(snapshot.sessions)),
     );
-    passive = merged.visible;
+    // A row the human has dismissed stays dismissed: there is nothing on disk to act
+    // on, so the only thing we can honour about it is that they said they were done.
+    passive = merged.visible.filter((view) => !dismissed.has(view.transcriptPath));
     pulses = merged.attached;
 
     // Read per refresh, not once at activate: a setting that needs a window reload to
@@ -75,7 +82,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Chooses between the two welcome messages in an empty panel (`viewsWelcome` in
     // package.json); until it is set, the panel offers Setup, which is the right guess.
-    await vscode.commands.executeCommand('setContext', 'agentMonitor.configured', await isSetUp(root));
+    //
+    // Only on change. Setting a context key re-evaluates every `when` clause in the
+    // window, which rebuilds the inline buttons on every row — once a second that is
+    // a row nobody can keep the pointer on.
+    await setContextIfChanged(contexts, 'agentMonitor.configured', await isSetUp(root));
+    await setContextIfChanged(contexts, 'agentMonitor.hasDismissed', dismissed.size > 0);
 
     tree.refresh();
     panels.renderAll();
@@ -113,6 +125,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('agentMonitor.deleteSession', (target?: Node) => {
       void deleteSession(model, tree, panels, sessionIdOf(target));
+    }),
+    vscode.commands.registerCommand('agentMonitor.dismissSession', (target?: Node) => {
+      void dismissSession(dismissed, target, refresh);
+    }),
+    vscode.commands.registerCommand('agentMonitor.showDismissedSessions', () => {
+      void restoreDismissed(dismissed, refresh);
     }),
   );
 
@@ -180,6 +198,95 @@ function notify(
     }
     panels.show(plan.sessionId);
   });
+}
+
+/**
+ * Rows the human has taken out of the list, remembered across restarts.
+ *
+ * Only transcript-only sessions land here. They have no session directory, so there
+ * is nothing to archive and nothing of ours to delete — the one file involved is the
+ * agent's own transcript, which this extension reads and never writes. Keyed by that
+ * path because it is the only stable name such a row has.
+ *
+ * Workspace state rather than `meta.json`: there is no `meta.json` to put it in.
+ */
+class DismissedSessions {
+  static readonly KEY = 'agentMonitor.dismissedTranscripts';
+
+  #paths: Set<string>;
+
+  constructor(private readonly context: vscode.ExtensionContext) {
+    const stored = context.workspaceState.get<unknown>(DismissedSessions.KEY);
+    this.#paths = new Set(
+      Array.isArray(stored) ? stored.filter((value): value is string => typeof value === 'string') : [],
+    );
+  }
+
+  get size(): number {
+    return this.#paths.size;
+  }
+
+  has(transcriptPath: string): boolean {
+    return this.#paths.has(transcriptPath);
+  }
+
+  async add(transcriptPath: string): Promise<void> {
+    this.#paths.add(transcriptPath);
+    await this.#save();
+  }
+
+  async clear(): Promise<number> {
+    const count = this.#paths.size;
+    this.#paths = new Set();
+    await this.#save();
+    return count;
+  }
+
+  async #save(): Promise<void> {
+    await this.context.workspaceState.update(DismissedSessions.KEY, [...this.#paths]);
+  }
+}
+
+/**
+ * Take a transcript-only row out of the list.
+ *
+ * Nothing is deleted and nothing is written outside this extension's own workspace
+ * state; the transcript stays where the agent put it, and the row comes back with
+ * "Show Dismissed Sessions".
+ */
+async function dismissSession(
+  dismissed: DismissedSessions,
+  target: Node | undefined,
+  refresh: () => Promise<void>,
+): Promise<void> {
+  if (target?.kind !== 'passive') return;
+  await dismissed.add(target.passive.transcriptPath);
+  await refresh();
+}
+
+/** Put every dismissed row back. There is no per-row undo; the list is short. */
+async function restoreDismissed(dismissed: DismissedSessions, refresh: () => Promise<void>): Promise<void> {
+  const count = await dismissed.clear();
+  await refresh();
+
+  void vscode.window.showInformationMessage(
+    count === 0
+      ? 'Agent Monitor: nothing was dismissed.'
+      : `Agent Monitor: ${count} dismissed session(s) are back in the list, if their transcripts are still recent.`,
+  );
+}
+
+/**
+ * Set a `when`-clause context key, but only when its value actually changed.
+ *
+ * `setContext` is not free: every clause in the window is re-evaluated, and the tree's
+ * inline buttons are rebuilt with them. Firing it once a second with the same value
+ * made the buttons flicker under the pointer and their tooltips jump.
+ */
+async function setContextIfChanged(known: Map<string, boolean>, key: string, value: boolean): Promise<void> {
+  if (known.get(key) === value) return;
+  known.set(key, value);
+  await vscode.commands.executeCommand('setContext', key, value);
 }
 
 /** What the tree clicked on, when a command was fired from a context menu. */

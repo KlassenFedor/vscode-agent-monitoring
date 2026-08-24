@@ -21,7 +21,8 @@ export interface CurrentSession extends OpenRecord {
   agent: AgentKind;
   /**
    * The claimant knew the agent's real session id, rather than having invented one.
-   * An authoritative claim displaces a generated one; the reverse never happens.
+   * An authoritative claim displaces a generated one, and a different authoritative
+   * id displaces this one; a generated id never displaces anything.
    */
   authoritative: boolean;
   updated_at: string;
@@ -56,7 +57,8 @@ export async function readCurrentSession(root: string, agent: AgentKind): Promis
  *
  * Returns the pointer that won, which the caller must use from then on. Whoever
  * starts first usually wins; an authoritative claim beats a fresh generated one, so
- * the agent's own id ends up being the shared answer regardless of start order.
+ * the agent's own id ends up being the shared answer regardless of start order. See
+ * {@link shouldReplace} for what happens when a second real id turns up.
  */
 export async function claimCurrentSession(
   root: string,
@@ -72,7 +74,7 @@ export async function claimCurrentSession(
   return withFileLock(lockPathFor(file), async () => {
     const existing = await readCurrentSession(root, agent);
 
-    if (existing && !shouldReplace(existing, { authoritative, maxAgeMs, now: clock.now() })) {
+    if (existing && !shouldReplace(existing, { authoritative, sessionId, maxAgeMs, now: clock.now() })) {
       return existing;
     }
 
@@ -87,13 +89,29 @@ export async function claimCurrentSession(
   });
 }
 
+/**
+ * Whether a new claim displaces the pointer already on disk.
+ *
+ * An authoritative claim carries the agent's own session id, which only the
+ * `session-start` hook and a server started with the id in its environment can know.
+ * A *different* authoritative id therefore means a different conversation — `/clear`
+ * hands the agent a fresh id and a fresh transcript, and so does a second window on
+ * the same workspace. Keeping the old pointer glued the new conversation onto the
+ * previous session directory: its title never changed, its timeline ran on, and
+ * comments nobody had answered yet were replayed into a context that had never seen
+ * them (PROTO-56).
+ *
+ * A generated id never displaces anything, and a re-claim of the same id is a no-op,
+ * so the pointer does not churn while one session runs.
+ */
 function shouldReplace(
   existing: CurrentSession,
-  ctx: { authoritative: boolean; maxAgeMs: number; now: number },
+  ctx: { authoritative: boolean; sessionId: string; maxAgeMs: number; now: number },
 ): boolean {
   const age = ctx.now - Date.parse(existing.updated_at);
   if (Number.isNaN(age) || age > ctx.maxAgeMs) return true;
-  return ctx.authoritative && !existing.authoritative;
+  if (!ctx.authoritative) return false;
+  return !existing.authoritative || existing.session_id !== ctx.sessionId;
 }
 
 export function parseCurrentSession(raw: unknown): CurrentSession {
