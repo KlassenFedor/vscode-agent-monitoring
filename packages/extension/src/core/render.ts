@@ -1,6 +1,6 @@
 import type { AgentEvent, Comment } from '@agent-monitor/protocol';
 
-import { artifactLabel } from './artifacts.js';
+import { artifactLabel, linkLabel } from './artifacts.js';
 import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE, commentKindLabel } from './kinds.js';
 import type { SessionView } from './model.js';
 import { sessionLabel } from './notify.js';
@@ -243,18 +243,34 @@ function renderEvent(event: AgentEvent, session: SessionView): string {
 </article>`;
 }
 
+/**
+ * Chips for whatever the event attached: copies first, then links.
+ *
+ * The two are told apart on the chip rather than only in the markup, because clicking
+ * one opens a snapshot this session owns and clicking the other opens the human's live
+ * working copy. Somebody reading a week-old report needs to know which of those they
+ * are about to look at.
+ */
 function renderArtifacts(event: AgentEvent): string {
+  const kind = escapeHtml(String(event.kind ?? ''));
   const refs = Array.isArray(event.artifacts)
     ? event.artifacts.filter((ref): ref is string => typeof ref === 'string')
     : [];
-  if (refs.length === 0) return '';
+  const links = Array.isArray(event.links)
+    ? event.links.filter((link): link is string => typeof link === 'string')
+    : [];
+  if (refs.length === 0 && links.length === 0) return '';
 
-  const chips = refs
-    .map(
+  const chips = [
+    ...refs.map(
       (ref) =>
-        `<button class="artifact" data-ref="${escapeHtml(ref)}" data-kind="${escapeHtml(String(event.kind ?? ''))}">${escapeHtml(artifactLabel(ref))}</button>`,
-    )
-    .join('');
+        `<button class="artifact" data-ref="${escapeHtml(ref)}" data-kind="${kind}">${escapeHtml(artifactLabel(ref))}</button>`,
+    ),
+    ...links.map(
+      (link) =>
+        `<button class="artifact link" data-link="${escapeHtml(link)}" data-kind="${kind}" title="${escapeHtml(link)} — opened in place, not a copy">${escapeHtml(linkLabel(link))}</button>`,
+    ),
+  ].join('');
   return `<div class="artifacts">${chips}</div>`;
 }
 
@@ -380,6 +396,8 @@ body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); 
 .event h3 { font-size: 0.95rem; margin: 0.2rem 0; }
 .summary { white-space: pre-wrap; word-break: break-word; font-family: var(--vscode-editor-font-family); font-size: 0.85rem; margin: 0.3rem 0; }
 .artifacts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0; }
+/* A link is not held by the session, so it does not get a solid edge like a copy. */
+.artifact.link { border-style: dashed; }
 .comment { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; font-size: 0.85rem; margin-top: 0.3rem; opacity: 0.9; }
 .comment .kind { text-transform: uppercase; font-size: 0.7rem; opacity: 0.7; }
 .comment time { opacity: 0.6; font-size: 0.75rem; }
@@ -542,7 +560,11 @@ document.addEventListener('click', (event) => {
   if (!(target instanceof HTMLElement)) return;
 
   if (target.classList.contains('artifact')) {
-    vscode.postMessage({ type: 'openArtifact', ref: target.dataset.ref, kind: target.dataset.kind });
+    if (target.dataset.link) {
+      vscode.postMessage({ type: 'openLink', path: target.dataset.link, kind: target.dataset.kind });
+    } else {
+      vscode.postMessage({ type: 'openArtifact', ref: target.dataset.ref, kind: target.dataset.kind });
+    }
   } else if (target.classList.contains('transcript')) {
     vscode.postMessage({ type: 'openTranscript', path: target.dataset.path });
   } else if (target.classList.contains('answer')) {

@@ -45,6 +45,10 @@ export const SERVER_INSTRUCTIONS = [
   'than a whole archive, a build output or a dependency tree. Keep credentials and personal data out',
   'of reports: not because the destination is remote, but because a log is read by a person.',
   '',
+  'When a file already exists in the workspace and is large or better left alone, point at it with the',
+  '`link` argument of `publish_artifact` instead of copying it. A link reads no bytes and writes none:',
+  'the event records the path, and the human opens the file where it already sits.',
+  '',
   'If your own permission rules refuse one of these calls, that is final. Do not retry it and do not',
   'stall on it. Say what was refused, and why, in a `report_progress` call — that one moves no files —',
   "and use `ask_user` when the human's approval is the thing you are missing.",
@@ -113,6 +117,12 @@ export const TOOLS: ToolDefinition[] = [
           items: { type: 'string' },
           description: 'References returned by publish_artifact, in the form artifacts/<name>.',
         },
+        links: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Workspace files worth opening alongside this report, as paths relative to the workspace root, e.g. "src/parser.ts". They are pointed at, not copied.',
+        },
       },
       required: ['title'],
       additionalProperties: false,
@@ -127,8 +137,12 @@ export const TOOLS: ToolDefinition[] = [
       'Use it whenever the human would want to read the thing itself rather than your summary of it.',
       'Pass exactly one of content (inline text) or path (a file you already wrote inside the workspace).',
       'The reply gives you the reference to cite from report_progress.',
-      'The bytes are written to .agent-monitor/<session>/artifacts/ in this workspace, on this machine,',
-      'and nowhere else: this is a copy into a log directory the human can open, not an upload.',
+      'Pass link instead when the file already exists in the workspace and you only want the human to',
+      'open it: nothing is copied, the event just records where it is. Prefer link for anything large,',
+      'and for anything you would rather not duplicate. Use path or content when you need a snapshot,',
+      'since a linked file shows whatever it holds later, not what you saw.',
+      'A copy is written to .agent-monitor/<session>/artifacts/ in this workspace, on this machine, and',
+      'nowhere else: it is a copy into a log directory the human can open, not an upload.',
       'Attach the smallest thing that makes the point — a diff, an excerpt, a table — rather than a',
       'whole archive or build output, and never a file holding credentials or personal data.',
       inTheirLanguage('title and summary'),
@@ -140,13 +154,18 @@ export const TOOLS: ToolDefinition[] = [
         name: {
           type: 'string',
           description:
-            'File name only, letters/digits/dot/dash/underscore, e.g. "plan.diff". No directories.',
+            'Name for the copy: file name only, letters/digits/dot/dash/underscore, e.g. "plan.diff". No directories. Required with content or path, ignored with link.',
         },
-        content: { type: 'string', description: 'Inline contents. Mutually exclusive with path.' },
+        content: { type: 'string', description: 'Inline contents, copied into the session.' },
         path: {
           type: 'string',
           description:
-            'Path to an existing file, relative to the workspace root. Mutually exclusive with content.',
+            'An existing file, relative to the workspace root, copied into the session as a snapshot.',
+        },
+        link: {
+          type: 'string',
+          description:
+            'An existing file, relative to the workspace root, left where it is and only pointed at. Nothing is read or copied. Use this for large or sensitive files.',
         },
         kind: {
           type: 'string',
@@ -159,7 +178,6 @@ export const TOOLS: ToolDefinition[] = [
           description: 'Optional note explaining what to look at in this artifact.',
         },
       },
-      required: ['name'],
       additionalProperties: false,
     },
     run: (runtime, args) => runtime.publishArtifact(args),

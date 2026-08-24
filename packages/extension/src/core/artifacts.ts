@@ -48,3 +48,15 @@ export function artifactLabel(ref: string): string {
   const slash = ref.lastIndexOf('/');
   return slash === -1 ? ref : ref.slice(slash + 1);
 }
+
+/**
+ * Label for a linked workspace file.
+ *
+ * The file name alone is what fits on a chip, but for a link it is often ambiguous —
+ * three `index.ts` in one report say nothing — so the directory above it comes along
+ * when there is one. The full path goes in the tooltip either way.
+ */
+export function linkLabel(link: string): string {
+  const parts = link.split('/').filter((part) => part !== '');
+  return parts.slice(-2).join('/');
+}

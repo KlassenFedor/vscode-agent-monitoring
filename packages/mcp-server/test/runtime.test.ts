@@ -96,6 +96,33 @@ describe('report_progress', () => {
   });
 });
 
+describe('report_progress with links', () => {
+  it('attaches workspace files to a milestone without copying them', async () => {
+    const { runtime, store, root } = await makeHarness();
+    await fs.writeFile(path.join(root, 'parser.ts'), 'x', 'utf8');
+    await fs.writeFile(path.join(root, 'lexer.ts'), 'y', 'utf8');
+
+    await runtime.reportProgress({ title: 'parser split', links: ['parser.ts', './lexer.ts'] });
+
+    const [event] = await store.listEvents();
+    expect(event?.links).toEqual(['parser.ts', 'lexer.ts']);
+    expect(await store.listArtifacts()).toEqual([]);
+  });
+
+  it('refuses the whole report rather than recording a link it could not verify', async () => {
+    const { runtime, store, root } = await makeHarness();
+    await fs.writeFile(path.join(root, 'parser.ts'), 'x', 'utf8');
+
+    const result = await runtime.reportProgress({
+      title: 'parser split',
+      links: ['parser.ts', '../escape.ts'],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(await store.listEvents()).toEqual([]);
+  });
+});
+
 describe('publish_artifact', () => {
   it('MCP-05: stores inline content and references it from the event', async () => {
     const { runtime, store } = await makeHarness();
@@ -165,10 +192,83 @@ describe('publish_artifact', () => {
 
     const neither = await runtime.publishArtifact({ name: 'x.md' });
     const both = await runtime.publishArtifact({ name: 'x.md', content: 'a', path: 'b' });
+    const three = await runtime.publishArtifact({ name: 'x.md', content: 'a', link: 'b' });
 
     expect(neither.isError).toBe(true);
     expect(both.isError).toBe(true);
-    expect(neither.text).toContain('exactly one of content or path');
+    expect(three.isError).toBe(true);
+    expect(neither.text).toContain('exactly one of content, path or link');
+  });
+});
+
+describe('publish_artifact with a link', () => {
+  it('records where the file is and copies nothing', async () => {
+    const { runtime, store, root } = await makeHarness();
+    await fs.mkdir(path.join(root, 'src'), { recursive: true });
+    await fs.writeFile(path.join(root, 'src', 'parser.ts'), 'export const x = 1;\n', 'utf8');
+
+    const result = await runtime.publishArtifact({
+      link: 'src/parser.ts',
+      title: 'the parser as it stands',
+      kind: 'text',
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.text).toContain('Nothing was copied');
+    // The whole point of the feature: the artifacts directory stays empty.
+    expect(await store.listArtifacts()).toEqual([]);
+
+    const [event] = await store.listEvents();
+    expect(event).toMatchObject({
+      type: 'artifact',
+      title: 'the parser as it stands',
+      links: ['src/parser.ts'],
+    });
+    expect(event?.artifacts).toBeUndefined();
+  });
+
+  it('names the event after the path when no title is given', async () => {
+    const { runtime, store, root } = await makeHarness();
+    await fs.writeFile(path.join(root, 'plan.md'), '# plan\n', 'utf8');
+
+    await runtime.publishArtifact({ link: './plan.md' });
+
+    const [event] = await store.listEvents();
+    expect(event?.title).toBe('plan.md');
+  });
+
+  it('needs no name, since the file already has one', async () => {
+    const { runtime, root } = await makeHarness();
+    await fs.writeFile(path.join(root, 'plan.md'), '# plan\n', 'utf8');
+
+    expect((await runtime.publishArtifact({ link: 'plan.md' })).isError).toBeUndefined();
+  });
+
+  it('MCP-06: refuses a link that points outside the workspace', async () => {
+    const { runtime, store } = await makeHarness();
+
+    const result = await runtime.publishArtifact({ link: '../../../etc/hosts' });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('..');
+    expect(await store.listEvents()).toEqual([]);
+  });
+
+  it('refuses a link to a file that is not there, rather than a chip that opens nothing', async () => {
+    const { runtime, store } = await makeHarness();
+
+    const result = await runtime.publishArtifact({ link: 'src/missing.ts' });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('no such file');
+    expect(await store.listEvents()).toEqual([]);
+  });
+
+  it('refuses a link to a directory', async () => {
+    const { runtime, root } = await makeHarness();
+    await fs.mkdir(path.join(root, 'src'), { recursive: true });
+
+    expect((await runtime.publishArtifact({ link: 'src' })).isError).toBe(true);
   });
 });
 

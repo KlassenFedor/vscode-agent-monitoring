@@ -277,6 +277,7 @@ describe('EXT-10: instruction blocks in CLAUDE.md and AGENTS.md', () => {
       const block = agentInstructions(agent);
       expect(block, agent).toContain('nothing is uploaded anywhere');
       expect(block, agent).toContain('refused by your own permission');
+      expect(block, agent).toContain('`link`');
     }
   });
 

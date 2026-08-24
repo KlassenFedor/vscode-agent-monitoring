@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import {
   artifactFileName,
   ProtocolError,
+  resolveWorkspaceLink,
   SessionStore,
   SESSION_STATUSES,
   systemClock,
@@ -111,6 +112,7 @@ export class MonitorRuntime {
       const summary = optionalString(args, 'summary', { maxLength: 3000 });
       const next = optionalString(args, 'next', { maxLength: 1000 });
       const artifacts = optionalStringArray(args, 'artifacts');
+      const links = await this.#checkLinks(optionalStringArray(args, 'links', { maxItems: 20 }));
 
       await this.ensureSession();
       await this.#resumeFromReview();
@@ -123,6 +125,7 @@ export class MonitorRuntime {
         ...(summary === undefined ? {} : { summary }),
         ...(next === undefined ? {} : { next }),
         ...(artifacts === undefined ? {} : { artifacts }),
+        ...(links === undefined ? {} : { links }),
         ...(throttled ? { throttled: true } : {}),
       });
       this.#lastReportAt = this.#nowMs();
@@ -138,15 +141,22 @@ export class MonitorRuntime {
   }
 
   /**
-   * Store a file next to the session and announce it.
+   * Attach a file to the session, either as a copy or as a pointer.
    *
-   * Artifacts are what make a report reviewable — a diff, a plan, a table — and they
-   * are stored rather than inlined so a large one cannot blow up the event line.
+   * Artifacts are what make a report reviewable — a diff, a plan, a table — and a copy
+   * is stored rather than inlined so a large one cannot blow up the event line.
+   *
+   * `link` is the other half of that trade. Copying a file the human already has is
+   * wasted bytes when it is large, and it reads as a data transfer to an approval
+   * reviewer weighing whether the agent should be moving this around at all — which is
+   * how a `publish_artifact` on a private archive came to be refused outright. A link
+   * moves nothing: the event records where the file already is, the panel opens it from
+   * there, and the reviewer has nothing to weigh. The cost is that a link is not a
+   * snapshot, so anything that has to survive a later edit is still a copy.
    */
   async publishArtifact(rawArgs: unknown): Promise<ToolResult> {
     return this.#guard(async () => {
       const args = asArgs(rawArgs);
-      const name = requiredString(args, 'name', { maxLength: 100 });
       const title = optionalString(args, 'title', { maxLength: 500 });
       const summary = optionalString(args, 'summary', { maxLength: 3000 });
       const kind = (optionalString(args, 'kind') ?? 'file') as ArtifactKind;
@@ -156,10 +166,15 @@ export class MonitorRuntime {
 
       const inlineContent = optionalString(args, 'content', { maxLength: this.#maxArtifactBytes });
       const sourcePath = optionalString(args, 'path', { maxLength: 4096 });
-      if ((inlineContent === undefined) === (sourcePath === undefined)) {
-        throw new ArgumentError('pass exactly one of content or path');
-      }
+      const link = optionalString(args, 'link', { maxLength: 1024 });
+      const given = [inlineContent, sourcePath, link].filter((value) => value !== undefined).length;
+      if (given !== 1) throw new ArgumentError('pass exactly one of content, path or link');
 
+      if (link !== undefined) return this.#publishLink(link, { title, summary, kind });
+
+      // Only a copy needs a name: it is becoming a new file, and something has to call
+      // it something. A link is already named by the path it points at.
+      const name = requiredString(args, 'name', { maxLength: 100 });
       const content = inlineContent ?? (await this.#readWorkspaceFile(sourcePath as string));
 
       await this.ensureSession();
@@ -183,6 +198,33 @@ export class MonitorRuntime {
         ),
       };
     });
+  }
+
+  /** The no-copy half of `publish_artifact`: record where the file is and stop there. */
+  async #publishLink(
+    link: string,
+    fields: { title?: string | undefined; summary?: string | undefined; kind: ArtifactKind },
+  ): Promise<ToolResult> {
+    const [checked] = (await this.#checkLinks([link])) as string[];
+    const ref = checked as string;
+
+    await this.ensureSession();
+    await this.#resumeFromReview();
+
+    const event = await this.store.appendEvent({
+      type: 'artifact',
+      title: fields.title ?? ref,
+      links: [ref],
+      kind: fields.kind,
+      ...(fields.summary === undefined ? {} : { summary: fields.summary }),
+    });
+
+    return {
+      text: paragraphs(
+        `Linked ${ref} as report #${event.seq}. Nothing was copied: the human opens the file where it already is.`,
+        await this.#deliverFeedback(),
+      ),
+    };
   }
 
   /** Explicit poll for feedback, for agents without a hook channel. */
@@ -345,6 +387,34 @@ export class MonitorRuntime {
   #throttleHint(): string {
     const seconds = Math.round(this.#minReportIntervalMs / 1000);
     return `Note: the previous report was less than ${seconds}s ago, so this one is marked as throttled in the timeline. Report on milestones (a module finished, a plan ready, tests green), not on every file.`;
+  }
+
+  /**
+   * Validate links and prove each one names a file that is actually there.
+   *
+   * Nothing is read: existence is the only question, because the panel is going to open
+   * the path rather than any content this process saw. A link to a file that is not
+   * there is refused outright instead of being recorded — a chip that opens nothing is
+   * worse than a report that never mentioned the file, since the human cannot tell
+   * whether they are looking at a bug or at work that was never done.
+   */
+  async #checkLinks(links: string[] | undefined): Promise<string[] | undefined> {
+    if (links === undefined) return undefined;
+
+    const checked: string[] = [];
+    for (const link of links) {
+      let resolved: string;
+      try {
+        resolved = resolveWorkspaceLink(this.root, link);
+      } catch (error) {
+        throw new ArgumentError(`link ${link}: ${(error as Error).message}`);
+      }
+
+      const stats = await fs.stat(resolved).catch(() => null);
+      if (!stats?.isFile()) throw new ArgumentError(`link ${link}: no such file in the workspace`);
+      checked.push(path.relative(this.root, resolved).split(path.sep).join('/'));
+    }
+    return checked;
   }
 
   /** Read a file the agent already wrote, refusing anything outside the workspace. */

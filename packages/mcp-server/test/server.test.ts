@@ -74,6 +74,20 @@ describe('MCP surface', () => {
     expect(instructions).toContain('report_progress');
   });
 
+  it('offers linking as the alternative to copying a large or sensitive file', async () => {
+    const { agent } = await connect();
+
+    const publish = (await agent.listTools()).find((tool) => tool.name === 'publish_artifact');
+    const schema = publish?.inputSchema as { properties: Record<string, unknown>; required?: string[] };
+
+    expect(Object.keys(schema.properties)).toContain('link');
+    // `name` names a copy, and a link is already named by its path, so nothing on this
+    // tool can be required any more.
+    expect(schema.required).toBeUndefined();
+    expect(publish?.description).toContain('nothing is copied');
+    expect(agent.instructions()).toContain('`link` argument');
+  });
+
   it('tells the agent what to do when its own permission rules refuse a call', async () => {
     const { agent } = await connect();
 

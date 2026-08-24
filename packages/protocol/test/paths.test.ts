@@ -11,6 +11,8 @@ import {
   eventsPath,
   isSafeArtifactName,
   resolveArtifactPath,
+  resolveWorkspaceLink,
+  assertWorkspaceLink,
   uniqueArtifactName,
 } from '../src/paths.js';
 
@@ -83,5 +85,47 @@ describe('session ids', () => {
   it('builds paths under the workspace monitor directory', () => {
     const events = eventsPath('/work', 'sess-1');
     expect(events).toBe(path.join('/work', '.agent-monitor', 'sessions', 'sess-1', 'events.jsonl'));
+  });
+});
+
+describe('workspace links', () => {
+  it('canonicalises a path to POSIX form the machine that opens it can use', () => {
+    expect(assertWorkspaceLink('src/parser.ts')).toBe('src/parser.ts');
+    expect(assertWorkspaceLink('./src/parser.ts')).toBe('src/parser.ts');
+    expect(assertWorkspaceLink('src\\core\\parser.ts')).toBe('src/core/parser.ts');
+    expect(assertWorkspaceLink('src//core///parser.ts')).toBe('src/core/parser.ts');
+  });
+
+  it('SEC-04: refuses anything that does not stay inside the workspace', () => {
+    const bad = [
+      '',
+      '.',
+      '/etc/passwd',
+      'C:\\Windows\\system.ini',
+      '../secrets.env',
+      'src/../../secrets.env',
+      '..\\secrets.env',
+      'src/pars\u0000er.ts',
+      `${'a'.repeat(1025)}`,
+    ];
+
+    for (const value of bad) {
+      expect(() => assertWorkspaceLink(value), JSON.stringify(value)).toThrow(UnsafeNameError);
+    }
+  });
+
+  it('SEC-04: resolves only inside the workspace root', () => {
+    const root = path.join(path.sep, 'work', 'project');
+
+    expect(resolveWorkspaceLink(root, 'src/parser.ts')).toBe(path.join(root, 'src', 'parser.ts'));
+    expect(() => resolveWorkspaceLink(root, '../other/secrets.env')).toThrow(UnsafeNameError);
+  });
+
+  it('does not mistake a sibling directory with the same prefix for the workspace', () => {
+    const root = path.join(path.sep, 'work', 'project');
+
+    // `/work/project-2` starts with `/work/project`, and only the separator in the
+    // containment check keeps it out.
+    expect(() => resolveWorkspaceLink(root, '../project-2/secrets.env')).toThrow(UnsafeNameError);
   });
 });

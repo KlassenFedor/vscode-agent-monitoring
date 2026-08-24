@@ -138,6 +138,74 @@ export function assertArtifactRef(value: string): string {
   return value;
 }
 
+/**
+ * Longest workspace-relative path a link may carry.
+ *
+ * Well past any real source tree, and short enough that a model looping on a path
+ * cannot turn one event line into a megabyte.
+ */
+const LINK_MAX_LENGTH = 1024;
+
+/**
+ * A path in `event.links`: a file the agent pointed at without copying it.
+ *
+ * The difference from an artifact is the whole point of the field. An artifact is a
+ * copy this project owns, sitting in a directory whose name it chose; a link is a
+ * pointer into the human's own working tree, and the string comes from a language
+ * model. So the containment rules cannot be inherited from `artifacts/` — they have to
+ * be stated — and they are enforced twice: here on the way into the event, and again
+ * in the extension before anything is opened (TESTS.md SEC-04).
+ *
+ * Returns the canonical POSIX form, so a link written on Windows reads the same on the
+ * machine that opens it.
+ */
+export function assertWorkspaceLink(value: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new UnsafeNameError(String(value), 'link must be a non-empty string');
+  }
+  if (value.length > LINK_MAX_LENGTH) {
+    throw new UnsafeNameError(value, `link must be at most ${LINK_MAX_LENGTH} characters`);
+  }
+  if (value.includes('\0')) throw new UnsafeNameError(value, 'contains a NUL byte');
+
+  // Backslashes first: `..\..\etc` has to be seen as traversal, not as a file name
+  // that happens to contain punctuation.
+  const posix = value.replace(/\\/g, '/');
+  if (posix.startsWith('/') || /^[A-Za-z]:/.test(posix)) {
+    throw new UnsafeNameError(value, 'link must be relative to the workspace root');
+  }
+
+  const segments = posix.split('/').filter((segment) => segment !== '' && segment !== '.');
+  if (segments.length === 0) throw new UnsafeNameError(value, 'link must name a file');
+  if (segments.includes('..')) {
+    throw new UnsafeNameError(value, 'link must not climb out of the workspace with ..');
+  }
+
+  return segments.join('/');
+}
+
+/**
+ * Resolve a link against the workspace root, then prove the result stayed inside it.
+ *
+ * The second lock on the door, exactly as {@link resolveArtifactPath} is for artifacts:
+ * the checks above already make escape impossible, and this one holds even if they are
+ * ever relaxed.
+ *
+ * Symlinks are not followed, matching how the rest of the project treats workspace
+ * paths. A link is opened in the human's own editor by the human's own click, so a
+ * symlink out of the tree is worth no more than the file they could already have
+ * opened themselves; resolving them would instead break the workspaces that legitimately
+ * symlink a directory in.
+ */
+export function resolveWorkspaceLink(root: string, link: string): string {
+  const resolved = path.resolve(root, assertWorkspaceLink(link));
+  const prefix = path.resolve(root) + path.sep;
+  if (!resolved.startsWith(prefix)) {
+    throw new UnsafeNameError(link, 'resolves outside the workspace');
+  }
+  return resolved;
+}
+
 /** `7, 'report.md'` -> `0007-report.md`, so a directory listing sorts chronologically. */
 export function artifactFileName(seq: number, name: string): string {
   const prefix = String(Math.max(0, Math.trunc(seq))).padStart(4, '0');

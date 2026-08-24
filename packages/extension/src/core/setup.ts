@@ -464,6 +464,10 @@ ${pull}- Attach the artefact itself with \`publish_artifact\` when the human wou
 - Attach the smallest thing that carries the point — a diff, an excerpt, a table — not a
   whole archive, build output or dependency tree, and never a file holding credentials or
   personal data.
+- For a file that is already in the workspace and is large or better left alone, pass it
+  as \`link\` to \`publish_artifact\` instead of copying it: nothing is read or written, the
+  report just records where it is. Copy it only when you need a snapshot, since a link
+  shows whatever the file holds later.
 - If one of these calls is refused by your own permission or approval rules, do not retry
   it and do not go quiet: say what was refused in \`report_progress\`, which moves no files,
   and call \`ask_user\` when it is the human's approval you are missing.

@@ -1,5 +1,5 @@
 import { ValidationError } from './errors.js';
-import { assertArtifactRef } from './paths.js';
+import { assertArtifactRef, assertWorkspaceLink } from './paths.js';
 
 export const EVENT_TYPES = ['progress', 'artifact', 'question', 'status', 'error'] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -34,6 +34,15 @@ export interface AgentEvent extends OpenRecord {
   summary?: string;
   /** Paths relative to the session directory, always under `artifacts/`. */
   artifacts?: string[];
+  /**
+   * Files the agent pointed at instead of copying, relative to the workspace root.
+   *
+   * Kept apart from `artifacts` because the two resolve against different directories
+   * and mean different things: an artifact is a snapshot this session owns, a link is
+   * whatever that path holds when the human clicks it. Folding them into one list
+   * would put a workspace path where every reader expects a session path.
+   */
+  links?: string[];
   next?: string;
   /** True only for `question` events the agent is blocked on. */
   needs_answer?: boolean;
@@ -112,6 +121,7 @@ export function parseEvent(raw: unknown): AgentEvent {
   if (o.next !== undefined) event.next = requireString(o.next, 'event.next', { allowEmpty: true });
   if (o.needs_answer !== undefined) event.needs_answer = requireBoolean(o.needs_answer, 'event.needs_answer');
   if (o.artifacts !== undefined) event.artifacts = requireArtifactRefs(o.artifacts, 'event.artifacts');
+  if (o.links !== undefined) event.links = requireLinks(o.links, 'event.links');
   if (o.cost !== undefined) event.cost = requireCost(o.cost, 'event.cost');
 
   return event;
@@ -246,6 +256,21 @@ function requireArtifactRefs(value: unknown, field: string): string[] {
     const ref = requireString(entry, `${field}[${index}]`, { maxLength: 300 });
     try {
       return assertArtifactRef(ref);
+    } catch (error) {
+      throw new ValidationError(`${field}[${index}]`, (error as Error).message);
+    }
+  });
+}
+
+function requireLinks(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new ValidationError(field, `expected an array, got ${describe(value)}`);
+  }
+  if (value.length > 50) throw new ValidationError(field, `has ${value.length} entries, limit is 50`);
+  return value.map((entry, index) => {
+    const link = requireString(entry, `${field}[${index}]`, { maxLength: 1024 });
+    try {
+      return assertWorkspaceLink(link);
     } catch (error) {
       throw new ValidationError(`${field}[${index}]`, (error as Error).message);
     }

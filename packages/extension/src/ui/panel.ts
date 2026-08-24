@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { artifactsDir, type CommentKind } from '@agent-monitor/protocol';
+import { artifactsDir, resolveWorkspaceLink, type CommentKind } from '@agent-monitor/protocol';
 
 import { openKindFor } from '../core/artifacts.js';
 import type { WorkspaceModel } from '../core/model.js';
@@ -163,6 +163,49 @@ export class SessionPanels {
 
     if (message.type === 'openArtifact' && typeof message.ref === 'string') {
       await this.#openArtifact(sessionId, message.ref);
+      return;
+    }
+
+    if (message.type === 'openLink' && typeof message.path === 'string') {
+      await this.#openLink(message.path);
+    }
+  }
+
+  /**
+   * Open a file the agent linked instead of copying.
+   *
+   * The path is re-checked here rather than trusted from the message. The webview only
+   * ever renders links this extension read out of an event, but the message channel is
+   * the boundary, and a path that reaches `vscode.open` is worth checking on both sides
+   * of it — the writer's check lives in another process and another package.
+   *
+   * A link is a pointer, so the file may well be gone or renamed by the time anyone
+   * clicks. That is reported as what it is instead of failing silently: a chip that
+   * does nothing looks like a broken panel.
+   */
+  async #openLink(link: string): Promise<void> {
+    let target: string;
+    try {
+      target = resolveWorkspaceLink(this.model.root, link);
+    } catch {
+      void vscode.window.showErrorMessage(`Agent Monitor: "${link}" is not a path inside this workspace.`);
+      return;
+    }
+
+    const uri = vscode.Uri.file(target);
+    try {
+      await vscode.workspace.fs.stat(uri);
+    } catch {
+      void vscode.window.showWarningMessage(
+        `Agent Monitor: ${link} is no longer there. The agent linked the file rather than copying it, so it shows whatever is at that path now.`,
+      );
+      return;
+    }
+
+    if (openKindFor(link) === 'markdown') {
+      await vscode.commands.executeCommand('markdown.showPreview', uri);
+    } else {
+      await vscode.commands.executeCommand('vscode.open', uri);
     }
   }
 

@@ -120,3 +120,43 @@ describe('parseMeta and parseCursor', () => {
     );
   });
 });
+
+describe('event links', () => {
+  it('keeps a workspace link on the event, canonicalised', () => {
+    const event = parseEvent({
+      seq: 1,
+      ts: '2026-08-13T10:00:00.000Z',
+      type: 'artifact',
+      title: 'the parser',
+      links: ['src\\core\\parser.ts', './docs/plan.md'],
+    });
+
+    expect(event.links).toEqual(['src/core/parser.ts', 'docs/plan.md']);
+  });
+
+  it('SEC-04: refuses a link that climbs out of the workspace', () => {
+    const event = {
+      seq: 1,
+      ts: '2026-08-13T10:00:00.000Z',
+      type: 'artifact',
+      title: 'x',
+      links: ['../../etc/passwd'],
+    };
+
+    expect(() => parseEvent(event)).toThrow(ValidationError);
+  });
+
+  it('keeps links and artifacts apart, since they resolve against different roots', () => {
+    const event = parseEvent({
+      seq: 1,
+      ts: '2026-08-13T10:00:00.000Z',
+      type: 'artifact',
+      title: 'x',
+      artifacts: ['artifacts/0001-plan.diff'],
+      links: ['src/parser.ts'],
+    });
+
+    expect(event.artifacts).toEqual(['artifacts/0001-plan.diff']);
+    expect(event.links).toEqual(['src/parser.ts']);
+  });
+});

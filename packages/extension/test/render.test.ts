@@ -488,6 +488,52 @@ describe('panel content', () => {
     expect(html).toContain('0007-plan.diff</button>');
     expect(html).toContain('data-reply-to="7"');
   });
+
+  it('marks a linked workspace file as something opened in place, not a copy', () => {
+    const html = renderSession(
+      view({
+        events: [
+          {
+            seq: 8,
+            ts: '2026-08-13T10:00:00.000Z',
+            type: 'artifact',
+            title: 'the parser as it stands',
+            links: ['packages/protocol/src/parser.ts'],
+          },
+        ],
+      }),
+      options,
+    );
+
+    // A link carries its own attribute so the panel routes it against the workspace
+    // root instead of the session's artifacts directory.
+    expect(html).toContain('data-link="packages/protocol/src/parser.ts"');
+    expect(html).not.toContain('data-ref="packages/protocol/src/parser.ts"');
+    // Enough path to tell three files called parser.ts apart, full path in the tooltip.
+    expect(html).toContain('>src/parser.ts</button>');
+    expect(html).toContain('title="packages/protocol/src/parser.ts — opened in place, not a copy"');
+  });
+
+  it('shows copies and links side by side on one report', () => {
+    const html = renderSession(
+      view({
+        events: [
+          {
+            seq: 9,
+            ts: '2026-08-13T10:00:00.000Z',
+            type: 'progress',
+            title: 'parser split',
+            artifacts: ['artifacts/0001-plan.diff'],
+            links: ['src/parser.ts'],
+          },
+        ],
+      }),
+      options,
+    );
+
+    expect(html).toContain('data-ref="artifacts/0001-plan.diff"');
+    expect(html).toContain('data-link="src/parser.ts"');
+  });
 });
 
 describe('EXT-05: choosing a viewer for an artifact', () => {
