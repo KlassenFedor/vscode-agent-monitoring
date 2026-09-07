@@ -43,6 +43,16 @@ export interface PassiveActivity {
   changedFiles: string[];
   /** What the agent said and did, oldest first, capped at the most recent entries. */
   entries: PassiveEntry[];
+  /**
+   * Thread this transcript was spawned from, when it is not a conversation of its own.
+   *
+   * Both agents have grown helpers that get a transcript each — Codex writes one file
+   * per subagent thread beside the parent's, in the same working directory — and a
+   * helper is not a session. It has no separate life to report on, it starts and ends
+   * inside one turn of the thread that spawned it, and it is written at the same
+   * moment, so a row of its own is the same work counted twice (TESTS.md PASV-15).
+   */
+  subagentOf: string | null;
 }
 
 export const EMPTY_ACTIVITY: PassiveActivity = {
@@ -55,6 +65,7 @@ export const EMPTY_ACTIVITY: PassiveActivity = {
   currentTool: null,
   changedFiles: [],
   entries: [],
+  subagentOf: null,
 };
 
 const MAX_CHANGED_FILES = 50;
@@ -111,6 +122,17 @@ export abstract class ActivityParser {
     return this.activity.cwd;
   }
 
+  /**
+   * The thread that spawned this one, once a record has said there was one.
+   *
+   * Checked after every read, next to {@link cwd}, and for the same reason: both are
+   * grounds for dropping the file rather than showing it, and both are known long
+   * before the transcript is finished.
+   */
+  get subagentOf(): string | null {
+    return this.activity.subagentOf;
+  }
+
   protected abstract consume(record: Record<string, unknown>): void;
 
   protected noteTimestamp(value: unknown): void {
@@ -137,6 +159,15 @@ export abstract class ActivityParser {
     if (!isObject(input)) return;
     const target = input.file_path ?? input.path ?? input.notebook_path;
     if (typeof target === 'string' && WRITING_TOOLS.has(name)) this.#changed.add(target);
+  }
+
+  /** Record that this transcript belongs to a helper spawned by another thread. */
+  protected noteSubagent(parent: unknown): void {
+    if (this.activity.subagentOf !== null) return;
+    const id = typeof parent === 'string' ? parent.trim() : '';
+    // The parent id is worth keeping when the transcript names it, but the decision
+    // this feeds does not depend on knowing it: what matters is that there is one.
+    this.activity.subagentOf = id === '' ? 'unknown' : id;
   }
 
   protected noteChangedFile(value: unknown): void {

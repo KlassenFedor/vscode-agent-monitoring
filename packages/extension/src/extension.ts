@@ -9,12 +9,13 @@ import type { CommentKind } from '@agent-monitor/protocol';
 
 import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from './core/kinds.js';
 import { parseLabelExtras } from './core/label.js';
-import { sessionFootprint, type SessionFootprint } from './core/manage.js';
+import { currentSessionIds, sessionFootprint, type SessionFootprint } from './core/manage.js';
 import { WorkspaceModel, type SessionView } from './core/model.js';
 import { resolveNodePath } from './core/node-path.js';
 import { planNotification, sessionChoices, sessionLabel } from './core/notify.js';
 import { mergePassive } from './core/passive/merge.js';
 import { PassiveTracker, type KnownTranscript, type PassiveSessionView } from './core/passive/tracker.js';
+import { residualSessions } from './core/residual.js';
 import { rotateSessions } from './core/rotate.js';
 import { findBrokenSetup, isSetUp, setupWorkspace, type SetupPaths } from './core/setup.js';
 import { SessionWatcher } from './core/watcher.js';
@@ -35,6 +36,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   let passive: PassiveSessionView[] = [];
   let pulses: ReadonlyMap<string, PassiveSessionView> = new Map();
+  let residual: ReadonlySet<string> = new Set();
   const tracker = new PassiveTracker(root, {
     homeDir: os.homedir(),
     staleAfterMs: config.get<number>('staleAfterMs') ?? 600_000,
@@ -48,6 +50,7 @@ export function activate(context: vscode.ExtensionContext): void {
     () => passive,
     () => pulses,
     () => parseLabelExtras(vscode.workspace.getConfiguration('agentMonitor').get('sessionLabelExtras')),
+    () => residual,
   );
   const panels = new SessionPanels(model, () => pulses);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -68,6 +71,12 @@ export function activate(context: vscode.ExtensionContext): void {
     // on, so the only thing we can honour about it is that they said they were done.
     passive = merged.visible.filter((view) => !dismissed.has(view.transcriptPath));
     pulses = merged.attached;
+    // Two small files, read on the tick that uses them: a session an agent's pointer
+    // names must never be mistaken for the residue a slash command left behind.
+    residual = residualSessions(snapshot.sessions, {
+      current: await currentSessionIds(root),
+      pulses,
+    });
 
     // Read per refresh, not once at activate: a setting that needs a window reload to
     // take effect is the same bug in a smaller form, and this lookup is in-memory.

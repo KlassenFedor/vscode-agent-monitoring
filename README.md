@@ -25,3 +25,21 @@ npm install
 npm run typecheck
 npm test
 ```
+
+## Running your build
+
+The extension the editor loads is the installed VSIX, not the working tree, so a change
+is invisible until it is packaged and installed again:
+
+```bash
+npm run reinstall -w agent-monitor
+```
+
+That builds the three bundles, packages `agent-monitor.vsix` at the repository root and
+installs it over whatever is there. Then reload the window (`Developer: Reload Window`)
+— VS Code keeps the old copy of an extension running until it does.
+
+`--force` is in the script because the version in `package.json` rarely changes between
+builds, and VS Code refuses to reinstall a version it already has without it. In
+Remote-SSH or WSL the `code` on `PATH` is the remote CLI, so the extension lands on the
+machine the agents actually run on, which is where it has to be.

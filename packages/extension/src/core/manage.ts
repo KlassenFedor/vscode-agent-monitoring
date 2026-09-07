@@ -91,9 +91,21 @@ export async function sessionFootprint(root: string, sessionId: string): Promise
 
 /** Is an agent pointed at this session right now? */
 export async function isCurrentSession(root: string, sessionId: string): Promise<boolean> {
+  return (await currentSessionIds(root)).has(sessionId);
+}
+
+/**
+ * The session each agent's pointer names, across every agent.
+ *
+ * One small file per agent, and everything that decides a session's fate reads it:
+ * rotation refuses to delete these, and the list refuses to hide them. A session an
+ * agent is about to write to is never residue, however empty it looks right now.
+ */
+export async function currentSessionIds(root: string): Promise<Set<string>> {
+  const ids = new Set<string>();
   for (const agent of AGENT_KINDS) {
     const pointer = await readCurrentSession(root, agent);
-    if (pointer?.session_id === sessionId) return true;
+    if (pointer) ids.add(pointer.session_id);
   }
-  return false;
+  return ids;
 }

@@ -381,6 +381,7 @@ describe('showing passive sessions next to reporting ones', () => {
     currentTool: 'Read',
     changedFiles: [],
     entries: [],
+    subagentOf: null,
     transcriptPath: '/home/u/.claude/projects/-work/session.jsonl',
     stale: false,
     ...overrides,
@@ -481,6 +482,64 @@ describe('showing passive sessions next to reporting ones', () => {
 
     expect(merged.attached.size).toBe(1);
     expect(merged.visible.map((view) => view.transcriptPath)).toEqual(['/home/u/other.jsonl']);
+  });
+
+  it('PASV-15: two files claiming the same session get one row between them', () => {
+    // The second lock behind the parser's subagent check: whatever the agents call
+    // their helper threads next, two transcripts that name the same session are one
+    // piece of work, and the freshest of them is the one worth showing.
+    const merged = mergePassive(
+      [],
+      [
+        passive({ lastMessage: 'still working' }),
+        passive({ transcriptPath: '/home/u/helper.jsonl', lastMessage: '{"outcome":"allow"}' }),
+      ],
+    );
+
+    expect(merged.visible.map((view) => view.lastMessage)).toEqual(['still working']);
+  });
+});
+
+describe('PASV-15: a subagent rollout is not a session', () => {
+  it('leaves the helper threads Codex spawns out of the list', async () => {
+    const harness = await makePassiveHarness();
+    await harness.installCodex('2026-08-basic.jsonl', 'thread.jsonl');
+    await harness.installCodex('2026-08-subagent.jsonl', 'guardian.jsonl');
+    await harness.installCodex('2026-08-subagent-quiet.jsonl', 'waiter.jsonl');
+
+    const sessions = await harness.tracker().refresh();
+
+    // Without this, one Codex turn is three rows ticking together: the conversation, the
+    // reviewer's verdict as raw JSON, and a nameless helper that has not spoken yet.
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.lastMessage).toBe('Extracted the lexer. Tests are green.');
+  });
+
+  it('says which thread spawned it, and stops reading the file once it knows', async () => {
+    const harness = await makePassiveHarness();
+    const parser = new CodexTranscriptParser();
+    const content = renderFixture(
+      await fs.readFile(path.join(fixtures, 'codex', '2026-08-subagent.jsonl'), 'utf8'),
+      harness.root,
+    );
+    parser.applyAll(
+      content
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map((line) => JSON.parse(line)),
+    );
+
+    expect(parser.subagentOf).toBe('codex-session-1');
+    expect(new CodexTranscriptParser().subagentOf).toBeNull();
+  });
+
+  it('leaves a rollout the human started alone', async () => {
+    const harness = await makePassiveHarness();
+    await harness.installCodex('2026-08-basic.jsonl');
+
+    const [session] = await harness.tracker().refresh();
+
+    expect(session?.subagentOf).toBeNull();
   });
 });
 

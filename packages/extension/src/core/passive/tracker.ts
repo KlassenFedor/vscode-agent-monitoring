@@ -40,7 +40,7 @@ interface SourceState {
   agent: AgentKind;
   parser: ActivityParser;
   offset: number;
-  /** Belongs to a different workspace; stop reading it. */
+  /** Belongs to a different workspace, or to a helper thread; stop reading it. */
   ignored: boolean;
 }
 
@@ -130,6 +130,13 @@ export class PassiveTracker {
       // A rollout from another project is discovered, identified, and then left alone.
       const cwd = state.parser.cwd;
       if (cwd !== null && path.resolve(cwd) !== path.resolve(this.root)) state.ignored = true;
+
+      // So is a subagent's, and for a stronger reason: it is this workspace, but it is
+      // not a session. Dropped rather than merged into the thread that spawned it —
+      // that thread is writing its own file throughout, so its row stays live on its
+      // own, and a helper's rollout can run to megabytes we would otherwise keep
+      // re-reading to show nobody anything (TESTS.md PASV-15).
+      if (state.parser.subagentOf !== null) state.ignored = true;
     } catch (error) {
       this.#fail(`${file}: ${error instanceof Error ? error.message : String(error)}`);
     }

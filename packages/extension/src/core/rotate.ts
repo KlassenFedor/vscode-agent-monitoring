@@ -1,20 +1,38 @@
 import { promises as fs } from 'node:fs';
 
 import {
-  AGENT_KINDS,
   listSessionIds,
-  readCurrentSession,
   sessionDir,
   SessionStore,
   systemClock,
   type Clock,
+  type SessionMeta,
 } from '@agent-monitor/protocol';
+
+import { currentSessionIds } from './manage.js';
 
 export interface RotateOptions {
   /** Sessions untouched for longer than this are removed. `0` disables rotation. */
   keepMs: number;
+  /**
+   * Shorter deadline for a session that never held anything: no report, no comment, no
+   * artifact, no title.
+   *
+   * These are ours, not the human's. Every Claude Code slash command that ends a session
+   * — `/clear`, `/model`, `/effort`, `/login`, `/resume` — starts a new one, and the
+   * `SessionStart` hook registers it before anyone knows it will be abandoned a second
+   * later. Keeping that for the full retention period means keeping a directory whose
+   * entire content is the fact that an agent once started here (TESTS.md EXT-19).
+   *
+   * Six hours by default, which is also how far back the passive layer looks: past it
+   * the transcript behind such a session is out of sight too, so there is nothing left
+   * to be curious about.
+   */
+  keepEmptyMs?: number;
   clock?: Clock;
 }
+
+const DEFAULT_KEEP_EMPTY_MS = 6 * 60 * 60_000;
 
 export interface RotateReport {
   removed: string[];
@@ -38,6 +56,7 @@ export async function rotateSessions(root: string, options: RotateOptions): Prom
 
   const clock = options.clock ?? systemClock;
   const deadline = clock.now() - options.keepMs;
+  const emptyDeadline = clock.now() - Math.min(options.keepEmptyMs ?? DEFAULT_KEEP_EMPTY_MS, options.keepMs);
   const current = await currentSessionIds(root);
 
   for (const id of await listSessionIds(root)) {
@@ -53,7 +72,16 @@ export async function rotateSessions(root: string, options: RotateOptions): Prom
       .readMeta()
       .catch(() => null);
     const updated = meta ? Date.parse(meta.updated_at) : Number.NaN;
-    if (!Number.isFinite(updated) || updated >= deadline) {
+    if (!Number.isFinite(updated)) {
+      report.kept += 1;
+      continue;
+    }
+
+    // Emptiness costs three directory reads, so it is only asked about in the window
+    // where the answer changes anything: past the ordinary deadline the session goes
+    // either way, and before the empty one it stays either way.
+    const expired = updated < deadline || (updated < emptyDeadline && (await isEmptySession(root, id, meta)));
+    if (!expired) {
       report.kept += 1;
       continue;
     }
@@ -70,11 +98,21 @@ export async function rotateSessions(root: string, options: RotateOptions): Prom
   return report;
 }
 
-async function currentSessionIds(root: string): Promise<Set<string>> {
-  const ids = new Set<string>();
-  for (const agent of AGENT_KINDS) {
-    const pointer = await readCurrentSession(root, agent);
-    if (pointer) ids.add(pointer.session_id);
+/** Nothing was ever published here, nobody said anything, and nobody named it. */
+async function isEmptySession(root: string, id: string, meta: SessionMeta | null): Promise<boolean> {
+  if (typeof meta?.title === 'string' && meta.title.trim() !== '') return false;
+
+  const store = SessionStore.open(root, id);
+  try {
+    const [events, comments, artifacts] = await Promise.all([
+      store.listEvents(),
+      store.listComments(),
+      store.listArtifacts(),
+    ]);
+    return events.length === 0 && comments.length === 0 && artifacts.length === 0;
+  } catch {
+    // An unreadable directory reads as non-empty on purpose: the one thing worse than
+    // keeping residue is deleting a session whose contents we failed to list.
+    return false;
   }
-  return ids;
 }

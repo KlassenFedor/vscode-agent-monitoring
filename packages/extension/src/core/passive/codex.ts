@@ -26,6 +26,7 @@ export class CodexTranscriptParser extends ActivityParser {
         if (isObject(payload.git) && typeof payload.git.branch === 'string') {
           this.activity.branch = payload.git.branch;
         }
+        this.#consumeThreadSource(payload);
         return;
 
       case 'turn_context':
@@ -42,6 +43,32 @@ export class CodexTranscriptParser extends ActivityParser {
 
       default:
         return;
+    }
+  }
+
+  /**
+   * Decide whether this rollout is a conversation or one of its helpers.
+   *
+   * Codex 0.15 spawns subagents — an approval reviewer, a waiter, whatever a `spawn_agent`
+   * asks for — and each gets its own rollout file, written in the same second, in the
+   * same directory, carrying the same `cwd` and the same `session_id` as the thread that
+   * spawned it. Only `id` differs. Left alone, one Codex turn therefore filled the
+   * sidebar with a row per helper, all ticking together: the conversation, a row whose
+   * whole content was the reviewer's verdict as raw JSON, and a nameless one for a helper
+   * that had not spoken yet.
+   *
+   * `parent_thread_id` is the field that says so outright, and it is the one relied on;
+   * `source` is read too because it carries the same fact in a shape that survived a
+   * rename once already, and neither appears on a rollout the human started.
+   */
+  #consumeThreadSource(payload: Record<string, unknown>): void {
+    const parent = payload.parent_thread_id;
+    if (typeof parent === 'string' && parent.trim() !== '') {
+      this.noteSubagent(parent);
+      return;
+    }
+    if (isObject(payload.source) && 'subagent' in payload.source) {
+      this.noteSubagent(payload.session_id);
     }
   }
 

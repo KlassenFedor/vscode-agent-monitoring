@@ -36,6 +36,7 @@
     "bundle": "node scripts/bundle.mjs",
     "icon": "node scripts/icon.mjs",
     "package": "npm run build && vsce package --no-dependencies --out ../../agent-monitor.vsix",
+    "reinstall": "npm run package && code --install-extension ../../agent-monitor.vsix --force",
     "test:host": "npm run build && node scripts/host-setup.mjs && tsc -p tsconfig.host.json && vscode-test"
   },
   "contributes": {

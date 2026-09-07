@@ -50,6 +50,8 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<Node> {
     private readonly pulses: () => ReadonlyMap<string, PassiveSessionView> = () => new Map(),
     /** `agentMonitor.sessionLabelExtras`, read per refresh so it applies immediately. */
     private readonly labelExtras: () => readonly SessionLabelExtra[] = () => [],
+    /** Sessions that hold nothing and never will (`residualSessions`). */
+    private readonly residual: () => ReadonlySet<string> = () => new Set(),
   ) {}
 
   /**
@@ -118,10 +120,11 @@ export class SessionTreeProvider implements vscode.TreeDataProvider<Node> {
   #buildRoots(): Node[] {
     const all = this.model.snapshot().sessions;
     const archived = all.filter((session) => session.archived);
+    const residual = this.residual();
 
     const roots: Node[] = [
       ...all
-        .filter((session) => !session.archived)
+        .filter((session) => !session.archived && !residual.has(session.id))
         .map((session) => this.#node({ key: sessionKey(session), kind: 'session', session })),
       ...this.passiveSessions().map((passive) =>
         this.#node({ key: `passive:${passive.transcriptPath}`, kind: 'passive', passive }),
