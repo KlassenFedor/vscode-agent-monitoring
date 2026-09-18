@@ -238,6 +238,15 @@
           "default": true,
           "description": "Show a notification when an agent asks a question and is waiting for you."
         },
+        "agentMonitor.claudeConfigDirs": {
+          "type": "array",
+          "default": [],
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Extra Claude Code configuration directories (`CLAUDE_CONFIG_DIR`) to look for transcripts in. `~/.claude` and every `~/.claude-*` directory are searched without being listed here; add a directory only if it lives elsewhere or is named differently. `~` is expanded."
+        },
         "agentMonitor.sessionLabelExtras": {
           "type": "array",
           "default": [],

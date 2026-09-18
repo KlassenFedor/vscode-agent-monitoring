@@ -39,6 +39,10 @@ export function activate(context: vscode.ExtensionContext): void {
   let residual: ReadonlySet<string> = new Set();
   const tracker = new PassiveTracker(root, {
     homeDir: os.homedir(),
+    claudeConfigDirs: () => [
+      process.env.CLAUDE_CONFIG_DIR ?? '',
+      ...(vscode.workspace.getConfiguration('agentMonitor').get<string[]>('claudeConfigDirs') ?? []),
+    ],
     staleAfterMs: config.get<number>('staleAfterMs') ?? 600_000,
     onDisabled: (reason) => void vscode.window.showWarningMessage(reason),
   });

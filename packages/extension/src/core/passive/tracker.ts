@@ -6,6 +6,7 @@ import { readJsonl, systemClock, type AgentKind, type Clock } from '@agent-monit
 import { type ActivityParser, type PassiveActivity } from './activity.js';
 import { ClaudeTranscriptParser } from './claude.js';
 import { CodexTranscriptParser } from './codex.js';
+import { claudeConfigDirs } from './config-dirs.js';
 import { claudeProjectSlug } from './slug.js';
 
 export interface PassiveSessionView extends PassiveActivity {
@@ -22,6 +23,12 @@ export interface KnownTranscript {
 export interface PassiveTrackerOptions {
   /** Where `.claude` and `.codex` live. Injected so tests can point at fixtures. */
   homeDir: string;
+  /**
+   * Claude Code configuration directories to search besides the ones found in the home
+   * by name — `CLAUDE_CONFIG_DIR` and `agentMonitor.claudeConfigDirs`. A function so a
+   * changed setting applies on the next refresh rather than the next window.
+   */
+  claudeConfigDirs?: () => readonly string[];
   clock?: Clock;
   staleAfterMs?: number;
   /** Consecutive unreadable reads before the whole layer switches itself off. */
@@ -61,6 +68,7 @@ export class PassiveTracker {
   readonly root: string;
 
   readonly #homeDir: string;
+  readonly #extraClaudeDirs: () => readonly string[];
   readonly #clock: Clock;
   readonly #staleAfterMs: number;
   readonly #maxFailures: number;
@@ -75,6 +83,7 @@ export class PassiveTracker {
   constructor(root: string, options: PassiveTrackerOptions) {
     this.root = root;
     this.#homeDir = options.homeDir;
+    this.#extraClaudeDirs = options.claudeConfigDirs ?? (() => []);
     this.#clock = options.clock ?? systemClock;
     this.#staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
     this.#maxFailures = options.maxFailures ?? DEFAULT_MAX_FAILURES;
@@ -182,10 +191,19 @@ export class PassiveTracker {
     this.#sources.set(file, { agent, parser: newParser(agent), offset: 0, ignored: false });
   }
 
-  /** Claude Code files are already grouped by workspace, so the slug is the filter. */
+  /**
+   * Claude Code files are already grouped by workspace, so the slug is the filter — in
+   * every configuration directory, since each account keeps its own `projects/`.
+   */
   async #claudeTranscripts(): Promise<string[]> {
-    const dir = path.join(this.#homeDir, '.claude', 'projects', claudeProjectSlug(this.root));
-    return listJsonl(dir, this.#clock.now() - this.#maxAgeMs);
+    const slug = claudeProjectSlug(this.root);
+    const notBefore = this.#clock.now() - this.#maxAgeMs;
+    const files: string[] = [];
+
+    for (const dir of await claudeConfigDirs(this.#homeDir, this.#extraClaudeDirs())) {
+      files.push(...(await listJsonl(path.join(dir, 'projects', slug), notBefore)));
+    }
+    return files;
   }
 
   /**

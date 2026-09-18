@@ -325,6 +325,9 @@ function passiveItem(passive: PassiveSessionView, extras: readonly SessionLabelE
     'It has no session directory here, so there is nothing to archive or delete — use Dismiss to take the row out of the list.',
     passive.lastActivityAt === null ? '' : `Last activity ${formatStamp(passive.lastActivityAt, Date.now())}`,
     passive.changedFiles.length === 0 ? '' : `Changed: ${passive.changedFiles.slice(-5).join(', ')}`,
+    // Two accounts in two configuration directories look identical otherwise; the path
+    // is what tells `~/.claude` from `~/.claude-api`.
+    `Transcript: ${passive.transcriptPath}`,
   ]
     .filter(Boolean)
     .join('\n');

@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ClaudeTranscriptParser } from '../src/core/passive/claude.js';
 import { CodexTranscriptParser } from '../src/core/passive/codex.js';
+import { claudeConfigDirs } from '../src/core/passive/config-dirs.js';
 import { claudeProjectSlug } from '../src/core/passive/slug.js';
 import { mergePassive } from '../src/core/passive/merge.js';
 import { PassiveTracker, type PassiveSessionView } from '../src/core/passive/tracker.js';
@@ -38,9 +39,13 @@ interface PassiveHarness {
   root: string;
   home: string;
   clock: ReturnType<typeof createManualClock>;
-  installClaude(fixture: string, name?: string): Promise<string>;
+  installClaude(fixture: string, name?: string, configDir?: string): Promise<string>;
   installCodex(fixture: string, name?: string): Promise<string>;
-  tracker(options?: { maxFailures?: number; onDisabled?: (reason: string) => void }): PassiveTracker;
+  tracker(options?: {
+    maxFailures?: number;
+    onDisabled?: (reason: string) => void;
+    claudeConfigDirs?: () => readonly string[];
+  }): PassiveTracker;
 }
 
 async function makePassiveHarness(): Promise<PassiveHarness> {
@@ -64,10 +69,10 @@ async function makePassiveHarness(): Promise<PassiveHarness> {
     root,
     home,
     clock,
-    installClaude: (fixture, name = 'session.jsonl') =>
+    installClaude: (fixture, name = 'session.jsonl', configDir = path.join(home, '.claude')) =>
       install(
         path.join(fixtures, 'claude', fixture),
-        path.join(home, '.claude', 'projects', claudeProjectSlug(root), name),
+        path.join(configDir, 'projects', claudeProjectSlug(root), name),
       ),
     installCodex: (fixture, name = 'rollout.jsonl') =>
       install(
@@ -177,6 +182,51 @@ describe('PASV-02: reading a Claude Code session', () => {
     expect(withHint).toHaveLength(1);
     expect(withHint[0]?.transcriptPath).toBe(elsewhere);
     expect(withHint[0]?.currentTool).toBe('Write');
+  });
+
+  it('PASV-16: finds a second account kept in its own configuration directory', async () => {
+    // `CLAUDE_CONFIG_DIR=~/.claude-api` next to the default: the second account's
+    // transcripts never touch `~/.claude`, and with `--setting-sources user` its hooks
+    // never run either, so this is the only place it can be seen from.
+    const harness = await makePassiveHarness();
+    const main = await harness.installClaude('2026-08-basic.jsonl', 'main.jsonl');
+    const api = await harness.installClaude(
+      '2026-08-basic.jsonl',
+      'api.jsonl',
+      path.join(harness.home, '.claude-api'),
+    );
+    // Shares the prefix and must not be mistaken for a configuration directory.
+    await fs.writeFile(path.join(harness.home, '.claude.json'), '{}', 'utf8');
+
+    const views = await harness.tracker().refresh();
+
+    expect(views.map((view) => view.transcriptPath).sort()).toEqual([api, main].sort());
+  });
+
+  it('PASV-16: reads a configuration directory the human named, wherever it is', async () => {
+    const harness = await makePassiveHarness();
+    const custom = path.join(harness.home, 'work', 'claude-profile');
+    const file = await harness.installClaude('2026-08-basic.jsonl', 'session.jsonl', custom);
+
+    const unnamed = await harness.tracker().refresh();
+    const named = await harness.tracker({ claudeConfigDirs: () => ['~/work/claude-profile'] }).refresh();
+
+    expect(unnamed).toEqual([]);
+    expect(named.map((view) => view.transcriptPath)).toEqual([file]);
+  });
+
+  it('PASV-16: counts a directory found twice once', async () => {
+    const harness = await makePassiveHarness();
+    await fs.mkdir(path.join(harness.home, '.claude-api'), { recursive: true });
+
+    const dirs = await claudeConfigDirs(harness.home, [
+      path.join(harness.home, '.claude-api'),
+      '~/.claude-api',
+      '',
+      'relative/dir',
+    ]);
+
+    expect(dirs).toEqual([path.join(harness.home, '.claude'), path.join(harness.home, '.claude-api')]);
   });
 
   it('PASV-08: calls a session stale once it has been quiet for long enough', async () => {
