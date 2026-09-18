@@ -45,10 +45,9 @@ function timelineOf(update: ReturnType<typeof renderUpdate>): string {
 function pulseEntry(
   ordinal: number,
   ts: string | null,
-  kind: 'message' | 'tool',
   text: string,
-): { ordinal: number; ts: string | null; kind: 'message' | 'tool'; text: string } {
-  return { ordinal, ts, kind, text };
+): { ordinal: number; ts: string | null; text: string } {
+  return { ordinal, ts, text };
 }
 
 const TRANSCRIPT = '/home/u/.claude/projects/-work/session.jsonl';
@@ -171,8 +170,8 @@ describe('EXT-25: a refresh redraws only what changed', () => {
       stale: false,
       transcriptPath: TRANSCRIPT,
       entries: [
-        pulseEntry(7, '2026-08-13T10:00:00.000Z', 'message', 'still here'),
-        pulseEntry(8, '2026-08-13T10:00:10.000Z', 'message', 'newest'),
+        pulseEntry(7, '2026-08-13T10:00:00.000Z', 'still here'),
+        pulseEntry(8, '2026-08-13T10:00:10.000Z', 'newest'),
       ],
     };
     const before = renderUpdate(view(), { ...pulse, entries: [pulse.entries[0] as never] });
@@ -279,24 +278,22 @@ describe('EXT-21: an agent that publishes nothing still gets a timeline', () => 
     stale: false,
     transcriptPath: TRANSCRIPT,
     entries: [
-      pulseEntry(1, '2026-08-13T10:00:00.000Z', 'message', 'Reading the parser tests'),
-      pulseEntry(2, '2026-08-13T10:00:05.000Z', 'tool', 'shell: pytest -q'),
-      pulseEntry(3, '2026-08-13T10:00:20.000Z', 'message', 'Three tests are red, fixing'),
+      pulseEntry(1, '2026-08-13T10:00:00.000Z', 'Reading the parser tests'),
+      pulseEntry(3, '2026-08-13T10:00:20.000Z', 'Three tests are red, fixing'),
     ],
   };
 
   it('draws every transcript line as its own row, oldest first', () => {
     const update = renderUpdate(view(), pulse);
 
-    expect(update.rows.map((row) => row.key)).toEqual(['pulse:1', 'pulse:2', 'pulse:3']);
-    expect(timelineOf(update)).toContain('shell: pytest -q');
+    expect(update.rows.map((row) => row.key)).toEqual(['pulse:1', 'pulse:3']);
+    expect(timelineOf(update)).toContain('Three tests are red, fixing');
   });
 
-  it('offers a comment button on what the agent said, but not on a tool call', () => {
+  it('offers a comment button on every line the agent said', () => {
     const timeline = timelineOf(renderUpdate(view(), pulse));
 
     expect(timeline.match(/class="reply-after"/g)).toHaveLength(2);
-    expect(timeline).not.toContain('data-after="shell: pytest -q"');
   });
 
   it('keeps the heading as the session name, not a copy of the newest line', () => {
@@ -323,7 +320,7 @@ describe('EXT-21: an agent that publishes nothing still gets a timeline', () => 
       currentTool: '<img src=x>',
       stale: false,
       transcriptPath: '"><script>alert(2)</script>',
-      entries: [pulseEntry(1, null, 'message', '<script>alert(1)</script>')],
+      entries: [pulseEntry(1, null, '<script>alert(1)</script>')],
     };
     const update = renderUpdate(view(), hostile);
 
@@ -388,8 +385,8 @@ describe('EXT-22: a comment addressed to nothing is still visible', () => {
       stale: false,
       transcriptPath: TRANSCRIPT,
       entries: [
-        pulseEntry(1, '2026-08-13T10:00:00.000Z', 'message', 'starting on the parser'),
-        pulseEntry(2, '2026-08-13T10:00:20.000Z', 'message', 'parser done'),
+        pulseEntry(1, '2026-08-13T10:00:00.000Z', 'starting on the parser'),
+        pulseEntry(2, '2026-08-13T10:00:20.000Z', 'parser done'),
       ],
     });
 

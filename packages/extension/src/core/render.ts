@@ -22,7 +22,7 @@ export interface SessionPulse {
   currentTool: string | null;
   stale: boolean;
   transcriptPath: string;
-  entries: readonly { ordinal: number; ts: string | null; kind: 'message' | 'tool'; text: string }[];
+  entries: readonly { ordinal: number; ts: string | null; text: string }[];
 }
 
 /**
@@ -283,13 +283,6 @@ function renderArtifacts(event: AgentEvent): string {
  * both are placed by time.
  */
 function renderPassiveEntry(entry: SessionPulse['entries'][number]): string {
-  if (entry.kind === 'tool') {
-    return `<div class="passive passive-tool">
-  ${renderTime(entry.ts)}
-  <span class="text">${escapeHtml(entry.text)}</span>
-</div>`;
-  }
-
   return `<article class="passive passive-message">
   <div class="event-head">
     <span class="source">from the transcript</span>
@@ -408,8 +401,6 @@ body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); 
 .pulse { opacity: 0.8; }
 .passive { border-left: 2px dashed var(--vscode-panel-border); padding: 0.3rem 0 0.5rem 0.8rem; margin-bottom: 0.5rem; }
 .passive .source { text-transform: uppercase; letter-spacing: 0.04em; }
-.passive-tool { display: flex; gap: 0.6rem; align-items: baseline; font-size: 0.8rem; opacity: 0.65; font-family: var(--vscode-editor-font-family); }
-.passive-tool .text { word-break: break-word; }
 .comment-standalone { border-left: 2px solid var(--vscode-textLink-foreground); padding-left: 0.8rem; margin: 0.4rem 0; }
 .composer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--vscode-editor-background); border-top: 1px solid var(--vscode-panel-border); padding: 0.5rem 1rem; }
 .composer label { font-size: 0.75rem; opacity: 0.7; }

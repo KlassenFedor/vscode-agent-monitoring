@@ -1,11 +1,18 @@
 import type { AgentKind } from '@agent-monitor/protocol';
 
 /**
- * One thing the agent said or did, in the order the transcript recorded it.
+ * One thing the agent said, in the order the transcript recorded it.
  *
  * This is what turns the passive layer into a timeline rather than a single reading:
  * a session that never calls the monitoring tools still has a history, and replacing
  * it with the latest line loses everything the human might want to comment on.
+ *
+ * Only what the agent said, not what it ran. Tool calls used to be entries too, and a
+ * working session makes dozens of them for every sentence: the feed filled with
+ * `Bash: grep …` lines, which are the agent's mechanics rather than anything written
+ * for the human, and they pushed its actual replies out of the capped list. What a
+ * tool call is still good for — "is it alive, what is it running now, what did it
+ * touch" — is kept in `currentTool` and `changedFiles` (TESTS.md PASV-13).
  */
 export interface PassiveEntry {
   /**
@@ -18,7 +25,6 @@ export interface PassiveEntry {
   ordinal: number;
   /** Timestamp of the transcript record, when it carried one. */
   ts: string | null;
-  kind: 'message' | 'tool';
   text: string;
 }
 
@@ -41,7 +47,7 @@ export interface PassiveActivity {
   currentTool: string | null;
   /** Files the agent wrote to, most recent last, de-duplicated. */
   changedFiles: string[];
-  /** What the agent said and did, oldest first, capped at the most recent entries. */
+  /** What the agent said, oldest first, capped at the most recent entries. */
   entries: PassiveEntry[];
   /**
    * Thread this transcript was spawned from, when it is not a conversation of its own.
@@ -72,7 +78,6 @@ const MAX_CHANGED_FILES = 50;
 const MAX_MESSAGE_CHARS = 400;
 /** A transcript runs for hours; the timeline only has to be worth scrolling. */
 const MAX_ENTRIES = 200;
-const MAX_TOOL_CHARS = 120;
 
 /**
  * Accumulates transcript records into an activity summary.
@@ -148,13 +153,12 @@ export abstract class ActivityParser {
     const text = value.trim();
     if (text === '') return;
     this.activity.lastMessage = truncate(text, MAX_MESSAGE_CHARS);
-    this.#record('message', this.activity.lastMessage);
+    this.#record(this.activity.lastMessage);
   }
 
   protected noteTool(name: unknown, input: unknown): void {
     if (typeof name !== 'string' || name === '') return;
     this.activity.currentTool = name;
-    this.#record('tool', describeTool(name, input));
 
     if (!isObject(input)) return;
     const target = input.file_path ?? input.path ?? input.notebook_path;
@@ -181,27 +185,13 @@ export abstract class ActivityParser {
    * again as a `response_item` — and a timeline that shows both reads as if the agent
    * said everything twice.
    */
-  #record(kind: PassiveEntry['kind'], text: string): void {
-    const last = this.#entries.at(-1);
-    if (last?.kind === kind && last.text === text) return;
+  #record(text: string): void {
+    if (this.#entries.at(-1)?.text === text) return;
 
     this.#ordinal += 1;
-    this.#entries.push({ ordinal: this.#ordinal, ts: this.activity.lastActivityAt, kind, text });
+    this.#entries.push({ ordinal: this.#ordinal, ts: this.activity.lastActivityAt, text });
     if (this.#entries.length > MAX_ENTRIES) this.#entries.splice(0, this.#entries.length - MAX_ENTRIES);
   }
-}
-
-/** `Read: src/parser.ts`, `shell: pytest -q` — the tool plus whatever it was aimed at. */
-function describeTool(name: string, input: unknown): string {
-  if (!isObject(input)) return name;
-
-  const target = input.file_path ?? input.path ?? input.notebook_path ?? input.command ?? input.pattern;
-  const rendered = Array.isArray(target)
-    ? target.filter((part) => typeof part === 'string').join(' ')
-    : target;
-  if (typeof rendered !== 'string' || rendered.trim() === '') return name;
-
-  return truncate(`${name}: ${rendered.trim()}`, MAX_TOOL_CHARS);
 }
 
 /**

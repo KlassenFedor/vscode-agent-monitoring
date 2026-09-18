@@ -594,19 +594,22 @@ describe('PASV-15: a subagent rollout is not a session', () => {
 });
 
 describe('PASV-13: the transcript as a timeline, not a single reading', () => {
-  it('keeps what a Codex session said and did, in order', async () => {
+  it('keeps what a Codex session said, in order, and leaves its tool calls out', async () => {
     const harness = await makePassiveHarness();
     await harness.installCodex('2026-08-basic.jsonl');
 
     const [session] = await harness.tracker().refresh();
 
-    expect(session?.entries.map((entry) => [entry.kind, entry.text])).toEqual([
-      ['message', 'Reading the parser first.'],
-      ['tool', 'shell: bash -lc cat src/parser.ts'],
-      ['tool', `apply_patch: ${harness.root}/src/lexer.ts`],
-      ['message', 'Extracted the lexer. Tests are green.'],
+    // The rollout runs `shell` and `apply_patch` between these two lines. Neither is a
+    // thing the agent said to anyone, and both used to be rows of the feed.
+    expect(session?.entries.map((entry) => entry.text)).toEqual([
+      'Reading the parser first.',
+      'Extracted the lexer. Tests are green.',
     ]);
     expect(session?.entries[0]?.ts).toBe('2026-08-13T10:00:04.000Z');
+    // What the calls are still good for survives outside the feed.
+    expect(session?.currentTool).toBe('apply_patch');
+    expect(session?.changedFiles).toEqual([`${harness.root}/src/lexer.ts`]);
   });
 
   it('keeps the same for Claude Code', async () => {
@@ -614,11 +617,33 @@ describe('PASV-13: the transcript as a timeline, not a single reading', () => {
     await harness.installClaude('2026-08-basic.jsonl');
 
     const [session] = await harness.tracker().refresh();
-    const kinds = session?.entries.map((entry) => entry.kind) ?? [];
+    const texts = session?.entries.map((entry) => entry.text) ?? [];
 
-    expect(kinds).toContain('message');
-    expect(kinds).toContain('tool');
-    expect(session?.entries.at(-1)?.text).toBe('Extracted the lexer and the reader. Running the tests next.');
+    expect(texts).not.toHaveLength(0);
+    expect(texts.filter((text) => /^(Bash|Read|Write|Edit|Grep)\b/.test(text))).toEqual([]);
+    expect(session?.currentTool).toBe('Write');
+    expect(texts.at(-1)).toBe('Extracted the lexer and the reader. Running the tests next.');
+  });
+
+  it('a run of tool calls does not push what the agent said out of the capped list', () => {
+    const parser = new ClaudeTranscriptParser();
+    parser.apply({
+      timestamp: '2026-08-13T10:00:00.000Z',
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Starting on the parser.' }] },
+    });
+    parser.applyAll(
+      Array.from({ length: 300 }, (_, index) => ({
+        timestamp: '2026-08-13T10:00:01.000Z',
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', name: 'Bash', input: { command: `grep -n x file${index}` } }],
+        },
+      })),
+    );
+
+    expect(parser.result().entries.map((entry) => entry.text)).toEqual(['Starting on the parser.']);
+    expect(parser.result().currentTool).toBe('Bash');
   });
 
   it('does not say the same thing twice when Codex announces it twice', () => {
