@@ -121,7 +121,7 @@ export const TOOLS: ToolDefinition[] = [
           type: 'array',
           items: { type: 'string' },
           description:
-            'Workspace files worth opening alongside this report, as paths relative to the workspace root, e.g. "src/parser.ts". They are pointed at, not copied.',
+            'Workspace files worth opening alongside this report, as paths relative to the workspace root, e.g. "src/parser.ts". Files only, not directories. They are pointed at, not copied.',
         },
       },
       required: ['title'],
@@ -135,7 +135,8 @@ export const TOOLS: ToolDefinition[] = [
     description: [
       'Attach a file to the session: a diff, a plan, a report, a table of findings.',
       'Use it whenever the human would want to read the thing itself rather than your summary of it.',
-      'Pass exactly one of content (inline text) or path (a file you already wrote inside the workspace).',
+      'Pass exactly one of content (inline text) or path (a file you already wrote inside the workspace),',
+      'with a name; leave the other source fields out.',
       'The reply gives you the reference to cite from report_progress.',
       'Pass link instead when the file already exists in the workspace and you only want the human to',
       'open it: nothing is copied, the event just records where it is. Prefer link for anything large,',
@@ -165,7 +166,7 @@ export const TOOLS: ToolDefinition[] = [
         link: {
           type: 'string',
           description:
-            'An existing file, relative to the workspace root, left where it is and only pointed at. Nothing is read or copied. Use this for large or sensitive files.',
+            'An existing file (not a directory), relative to the workspace root, left where it is and only pointed at. Nothing is read or copied. Use this for large or sensitive files.',
         },
         kind: {
           type: 'string',

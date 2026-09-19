@@ -121,6 +121,35 @@ describe('report_progress with links', () => {
     expect(result.isError).toBe(true);
     expect(await store.listEvents()).toEqual([]);
   });
+
+  it('says a directory is a directory, not that it does not exist', async () => {
+    const { runtime, store, root } = await makeHarness();
+    await fs.mkdir(path.join(root, 'results', 'phase2', 'top3'), { recursive: true });
+    await fs.writeFile(path.join(root, 'results', 'phase2', 'top3', 'a.html'), '<p>a</p>', 'utf8');
+
+    const result = await runtime.reportProgress({ title: 'top 3 ready', links: ['results/phase2/top3'] });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('results/phase2/top3: is a directory');
+    expect(result.text).toContain('directories are not supported');
+    expect(result.text).not.toContain('no such file');
+    expect(await store.listEvents()).toEqual([]);
+  });
+
+  it('accepts the files inside a directory, as nested workspace-relative paths', async () => {
+    const { runtime, store, root } = await makeHarness();
+    await fs.mkdir(path.join(root, 'results', 'phase2', 'top3'), { recursive: true });
+    await fs.writeFile(path.join(root, 'results', 'phase2', 'top3', 'a.html'), '<p>a</p>', 'utf8');
+
+    const result = await runtime.reportProgress({
+      title: 'top 3 ready',
+      links: ['results/phase2/top3/a.html', './results/phase2/top3/a.html'],
+    });
+
+    expect(result.isError).toBeUndefined();
+    const [event] = await store.listEvents();
+    expect(event?.links).toEqual(['results/phase2/top3/a.html', 'results/phase2/top3/a.html']);
+  });
 });
 
 describe('publish_artifact', () => {
@@ -199,6 +228,89 @@ describe('publish_artifact', () => {
     expect(three.isError).toBe(true);
     expect(neither.text).toContain('exactly one of content, path or link');
   });
+
+  // Clients that fill every schema property send "" for the sources the model did not
+  // pick. Read strictly, each mode then failed on another mode's empty field, and the
+  // two refusals demanded opposite things.
+  describe('when the unchosen sources arrive as empty strings', () => {
+    it('publishes inline content', async () => {
+      const { runtime, store } = await makeHarness();
+
+      const result = await runtime.publishArtifact({
+        name: 'orientation.md',
+        content: '# phase 2\n',
+        path: '',
+        link: '',
+        kind: 'markdown',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect((await store.readArtifact('0001-orientation.md'))?.toString('utf8')).toBe('# phase 2\n');
+    });
+
+    it('publishes a copy of a workspace file', async () => {
+      const { runtime, store, root } = await makeHarness();
+      await fs.mkdir(path.join(root, 'notes'), { recursive: true });
+      await fs.writeFile(path.join(root, 'notes', 'orientation.md'), '# phase 2\n', 'utf8');
+
+      const result = await runtime.publishArtifact({
+        name: 'orientation.md',
+        content: '',
+        path: 'notes/orientation.md',
+        link: ' ',
+        kind: 'markdown',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect((await store.readArtifact('0001-orientation.md'))?.toString('utf8')).toBe('# phase 2\n');
+    });
+
+    it('publishes a link', async () => {
+      const { runtime, store, root } = await makeHarness();
+      await fs.writeFile(path.join(root, 'table.csv'), 'a,b\n', 'utf8');
+
+      const result = await runtime.publishArtifact({
+        name: '',
+        content: '',
+        path: '',
+        link: 'table.csv',
+        kind: 'file',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect((await store.listEvents())[0]?.links).toEqual(['table.csv']);
+    });
+
+    it('still refuses a call where every source is empty', async () => {
+      const { runtime } = await makeHarness();
+
+      const result = await runtime.publishArtifact({ name: 'x.md', content: '', path: '', link: '' });
+
+      expect(result.isError).toBe(true);
+      expect(result.text).toContain('exactly one of content, path or link');
+    });
+  });
+
+  it('names a directory as the reason a copy was refused', async () => {
+    const { runtime, store, root } = await makeHarness();
+    await fs.mkdir(path.join(root, 'results'), { recursive: true });
+
+    const result = await runtime.publishArtifact({ name: 'results.md', path: 'results' });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('directories are not supported');
+    expect(await store.listArtifacts()).toEqual([]);
+  });
+
+  it('does not call an optional field required when it is given empty', async () => {
+    const { runtime } = await makeHarness();
+
+    const result = await runtime.publishArtifact({ name: 'x.md', content: 'x', title: '' });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('title is optional');
+    expect(result.text).not.toContain('required');
+  });
 });
 
 describe('publish_artifact with a link', () => {
@@ -268,7 +380,10 @@ describe('publish_artifact with a link', () => {
     const { runtime, root } = await makeHarness();
     await fs.mkdir(path.join(root, 'src'), { recursive: true });
 
-    expect((await runtime.publishArtifact({ link: 'src' })).isError).toBe(true);
+    const result = await runtime.publishArtifact({ link: 'src' });
+
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain('src: is a directory');
   });
 });
 

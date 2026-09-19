@@ -37,12 +37,26 @@ export function requiredString(
   return value;
 }
 
+/**
+ * A string field the caller may leave out.
+ *
+ * `blankIsAbsent` is for fields that pick a mode, like the three sources of
+ * `publish_artifact`. Some clients fill every property of the schema, sending `""`
+ * for the ones the model did not choose; read strictly, the unchosen field is then
+ * "given and empty", and the agent is told a field it deliberately left out is
+ * required. For a mode switch an empty value can only mean "not this one".
+ */
 export function optionalString(
   args: Record<string, unknown>,
   field: string,
-  options: { maxLength?: number } = {},
+  options: { maxLength?: number; blankIsAbsent?: boolean } = {},
 ): string | undefined {
-  if (args[field] === undefined || args[field] === null) return undefined;
+  const value = args[field];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'string' && value.trim() === '') {
+    if (options.blankIsAbsent) return undefined;
+    throw new ArgumentError(`${field} is optional, but when given must be a non-empty string`);
+  }
   return requiredString(args, field, options);
 }
 

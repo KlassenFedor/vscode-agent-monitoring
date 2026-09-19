@@ -58,6 +58,16 @@ const ARTIFACT_KINDS = ['markdown', 'diff', 'json', 'text', 'image', 'file'] as 
 type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
 /**
+ * Why a directory is refused as a link or a source.
+ *
+ * Both open or read exactly one file, and a directory is not one. Refused as "no such
+ * file", the agent is told a path it can see does not exist, and has no way to work
+ * out that listing the files inside is what was wanted.
+ */
+const DIRECTORY_REFUSAL =
+  'is a directory; directories are not supported, pass the files inside it one by one';
+
+/**
  * The behaviour behind the MCP tools, with no MCP plumbing in sight.
  *
  * Kept separate from the transport so the interesting cases — throttling, blocking
@@ -164,9 +174,12 @@ export class MonitorRuntime {
         throw new ArgumentError(`kind must be one of: ${ARTIFACT_KINDS.join(', ')}`);
       }
 
-      const inlineContent = optionalString(args, 'content', { maxLength: this.#maxArtifactBytes });
-      const sourcePath = optionalString(args, 'path', { maxLength: 4096 });
-      const link = optionalString(args, 'link', { maxLength: 1024 });
+      const inlineContent = optionalString(args, 'content', {
+        maxLength: this.#maxArtifactBytes,
+        blankIsAbsent: true,
+      });
+      const sourcePath = optionalString(args, 'path', { maxLength: 4096, blankIsAbsent: true });
+      const link = optionalString(args, 'link', { maxLength: 1024, blankIsAbsent: true });
       const given = [inlineContent, sourcePath, link].filter((value) => value !== undefined).length;
       if (given !== 1) throw new ArgumentError('pass exactly one of content, path or link');
 
@@ -411,6 +424,7 @@ export class MonitorRuntime {
       }
 
       const stats = await fs.stat(resolved).catch(() => null);
+      if (stats?.isDirectory()) throw new ArgumentError(`link ${link}: ${DIRECTORY_REFUSAL}`);
       if (!stats?.isFile()) throw new ArgumentError(`link ${link}: no such file in the workspace`);
       checked.push(path.relative(this.root, resolved).split(path.sep).join('/'));
     }
@@ -426,6 +440,7 @@ export class MonitorRuntime {
     }
 
     const stats = await fs.stat(resolved).catch(() => null);
+    if (stats?.isDirectory()) throw new ArgumentError(`path ${sourcePath}: ${DIRECTORY_REFUSAL}`);
     if (!stats?.isFile()) throw new ArgumentError(`no such file: ${sourcePath}`);
     if (stats.size > this.#maxArtifactBytes) {
       throw new ArgumentError(`file is ${stats.size} bytes, limit is ${this.#maxArtifactBytes}`);

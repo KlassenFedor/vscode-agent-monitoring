@@ -153,4 +153,25 @@ describe('MCP surface', () => {
     expect(result.isError).toBe(true);
     expect(result.text).toContain('title is required');
   });
+
+  it('accepts all three publish_artifact modes, with or without the other sources as ""', async () => {
+    const { agent, root } = await connect();
+    const { promises: fs } = await import('node:fs');
+    const path = await import('node:path');
+    await fs.writeFile(path.join(root, 'orientation.md'), '# phase 2\n', 'utf8');
+
+    const calls: Record<string, unknown>[] = [
+      { name: 'inline.md', content: '# inline\n', kind: 'markdown' },
+      { name: 'copy.md', path: 'orientation.md', kind: 'markdown' },
+      { link: 'orientation.md', kind: 'markdown' },
+      { name: 'inline.md', content: '# inline\n', path: '', link: '', kind: 'markdown' },
+      { name: 'copy.md', content: '', path: 'orientation.md', link: '', kind: 'markdown' },
+      { name: '', content: '', path: '', link: 'orientation.md', kind: 'markdown' },
+    ];
+
+    for (const args of calls) {
+      const result = await agent.tool('publish_artifact', args);
+      expect(result.isError, JSON.stringify(args)).toBe(false);
+    }
+  });
 });
