@@ -55,12 +55,20 @@ not the agent thought to look.
 
 ## Settings
 
-| Setting                            | Default  | What it does                                                         |
-| ---------------------------------- | -------- | -------------------------------------------------------------------- |
-| `agentMonitor.pollIntervalMs`      | `1000`   | How often to re-read session files when the watcher misses a change. |
-| `agentMonitor.staleAfterMs`        | `600000` | A session quiet for this long is shown as stale.                     |
-| `agentMonitor.keepSessionsForDays` | `14`     | Delete sessions untouched for this many days. `0` keeps everything.  |
-| `agentMonitor.notifyOnQuestion`    | `true`   | Notify when an agent is blocked waiting for your answer.             |
+| Setting                                 | Default  | What it does                                                         |
+| --------------------------------------- | -------- | -------------------------------------------------------------------- |
+| `agentMonitor.pollIntervalMs`           | `1000`   | How often to re-read session files when the watcher misses a change. |
+| `agentMonitor.staleAfterMs`             | `600000` | A session quiet for this long is shown as stale.                     |
+| `agentMonitor.keepSessionsForDays`      | `14`     | Delete sessions untouched for this many days. `0` keeps everything.  |
+| `agentMonitor.archiveSessionsAfterDays` | `0`      | Archive sessions untouched for this many days. `0` turns it off.     |
+| `agentMonitor.sessionLabelExtras`       | `[]`     | Show agent, start time and/or last activity before session titles.   |
+| `agentMonitor.notifyOnQuestion`         | `true`   | Notify when an agent is blocked waiting for your answer.             |
+
+The gear button on the Sessions list edits the title prefix and both timers without
+leaving the sidebar; it writes the same settings. Both timers count from a session's last
+activity, or from the moment you restored it from the archive, whichever is later. They
+run on start and then hourly, and a change made from the gear button applies at once —
+after naming the sessions a shorter delete deadline would remove.
 
 ## Privacy
 

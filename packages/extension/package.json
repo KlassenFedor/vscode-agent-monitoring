@@ -109,6 +109,11 @@
         "command": "agentMonitor.showDismissedSessions",
         "title": "Agent Monitor: Show Dismissed Sessions",
         "icon": "$(eye)"
+      },
+      {
+        "command": "agentMonitor.configureSessionList",
+        "title": "Agent Monitor: Sessions List Settings",
+        "icon": "$(settings-gear)"
       }
     ],
     "menus": {
@@ -191,6 +196,11 @@
           "group": "navigation@2"
         },
         {
+          "command": "agentMonitor.configureSessionList",
+          "when": "view == agentMonitor.sessions",
+          "group": "navigation@3"
+        },
+        {
           "command": "agentMonitor.showDismissedSessions",
           "when": "view == agentMonitor.sessions && agentMonitor.hasDismissed",
           "group": "manage@1"
@@ -231,7 +241,14 @@
         "agentMonitor.keepSessionsForDays": {
           "type": "number",
           "default": 14,
-          "description": "Delete session directories in .agent-monitor/ that have been untouched for this many days. Set to 0 to keep everything."
+          "minimum": 0,
+          "markdownDescription": "Delete session directories in `.agent-monitor/` that have been untouched for this many days, archived or not. `0` keeps everything. Checked on start and then hourly; also adjustable from the gear button on the Sessions list."
+        },
+        "agentMonitor.archiveSessionsAfterDays": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "Move sessions that have been untouched for this many days into the Archived folder of the Sessions list. Nothing is deleted, and a session restored by hand gets a fresh start. `0` (the default) turns it off. Checked on start and then hourly; also adjustable from the gear button on the Sessions list."
         },
         "agentMonitor.notifyOnQuestion": {
           "type": "boolean",
@@ -264,7 +281,7 @@
               "When the session was last active."
             ]
           },
-          "markdownDescription": "What to show in front of a session title in the Sessions list. Pick any combination, including none; they are always shown in this order: agent, created, updated. Times are `HH:MM`, or `DD.MM HH:MM` for another day. Empty (the default) shows the title on its own."
+          "markdownDescription": "What to show in front of a session title in the Sessions list. Pick any combination, including none; they are always shown in this order: agent, created, updated. Times are `HH:MM`, or `DD.MM HH:MM` for another day. Empty (the default) shows the title on its own. Also adjustable from the gear button on the Sessions list."
         }
       }
     }

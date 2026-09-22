@@ -9,6 +9,7 @@ import type { CommentKind } from '@agent-monitor/protocol';
 
 import { COMMENT_KIND_CHOICES, DEFAULT_STOP_REASON, STOP_CHOICE } from './core/kinds.js';
 import { parseLabelExtras } from './core/label.js';
+import { daysToMs, readDays } from './core/list-settings.js';
 import { currentSessionIds, sessionFootprint, type SessionFootprint } from './core/manage.js';
 import { WorkspaceModel, type SessionView } from './core/model.js';
 import { resolveNodePath } from './core/node-path.js';
@@ -16,9 +17,10 @@ import { planNotification, sessionChoices, sessionLabel } from './core/notify.js
 import { mergePassive } from './core/passive/merge.js';
 import { PassiveTracker, type KnownTranscript, type PassiveSessionView } from './core/passive/tracker.js';
 import { residualSessions } from './core/residual.js';
-import { rotateSessions } from './core/rotate.js';
+import { archiveSessions, rotateSessions } from './core/rotate.js';
 import { findBrokenSetup, isSetUp, setupWorkspace, type SetupPaths } from './core/setup.js';
 import { SessionWatcher } from './core/watcher.js';
+import { configureSessionList } from './ui/list-settings.js';
 import { SessionPanels } from './ui/panel.js';
 import { SessionTreeProvider, type Node } from './ui/tree.js';
 
@@ -111,6 +113,42 @@ export function activate(context: vscode.ExtensionContext): void {
     pollIntervalMs: config.get<number>('pollIntervalMs') ?? 1_000,
   });
 
+  // Delete first, then archive: a session about to be removed is not worth a write.
+  // Chained, so a run started from the settings menu never overlaps the hourly one.
+  let housekeeping = Promise.resolve();
+  const applyRetention = (): Promise<void> => {
+    housekeeping = housekeeping
+      .then(async () => {
+        const settings = vscode.workspace.getConfiguration('agentMonitor');
+        const rotated = await rotateSessions(root, {
+          keepMs: daysToMs(readDays(settings.get('keepSessionsForDays'), 14)),
+        });
+        for (const id of rotated.removed) panels.close(id);
+        const archived = await archiveSessions(root, {
+          archiveAfterMs: daysToMs(readDays(settings.get('archiveSessionsAfterDays'), 0)),
+        });
+        if (rotated.removed.length > 0 || archived.archived.length > 0) await refresh();
+      })
+      .catch(() => {
+        // A pass that failed half-way leaves nothing worse than the pass before it did;
+        // the next one, within the hour, starts again from the disk.
+      });
+    return housekeeping;
+  };
+
+  /** Visible sessions a delete deadline of `days` would take, by title. */
+  const previewDeletion = async (days: number): Promise<string[]> => {
+    const report = await rotateSessions(root, { keepMs: daysToMs(days), dryRun: true });
+    // Residue is gone either way, and it is not in the list: counting it would ask the
+    // human to confirm the loss of rows they have never seen.
+    return report.removed
+      .filter((id) => !residual.has(id))
+      .map((id) => {
+        const session = model.session(id);
+        return session ? sessionLabel(session) : id;
+      });
+  };
+
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('agentMonitor.sessions', tree),
     status,
@@ -145,16 +183,36 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('agentMonitor.showDismissedSessions', () => {
       void restoreDismissed(dismissed, refresh);
     }),
+    vscode.commands.registerCommand('agentMonitor.configureSessionList', () => {
+      void configureSessionList({
+        extensionId: context.extension.id,
+        refresh,
+        applyRetention,
+        previewDeletion,
+      });
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      // The label is read per refresh, but a refresh only happens when a session file
+      // moves; an idle list would keep the old titles until the next agent wrote.
+      if (event.affectsConfiguration('agentMonitor.sessionLabelExtras')) void refresh();
+    }),
   );
+
+  // Not on every settings change: the Settings editor saves a number field as it is
+  // typed, and a deadline of "1" on the way to "14" must not delete a fortnight of
+  // sessions. The menu in the list applies its changes itself, after confirming them.
+  const hourly = setInterval(() => void applyRetention(), HOUSEKEEPING_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(hourly) });
 
   void watcher.start();
   void refresh();
   void offerRepair(context, root);
 
-  // Once per window, not per refresh: old sessions do not age fast enough to be worth
-  // checking again, and a delete racing the watcher would only make noise.
-  void rotateSessions(root, { keepMs: (config.get<number>('keepSessionsForDays') ?? 14) * 24 * 60 * 60_000 });
+  // On start, then hourly: sessions age in days, and a window can stay open for weeks.
+  void applyRetention();
 }
+
+const HOUSEKEEPING_INTERVAL_MS = 60 * 60_000;
 
 export function deactivate(): void {
   // Everything is disposed through context.subscriptions.

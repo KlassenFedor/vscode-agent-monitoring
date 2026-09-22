@@ -113,6 +113,14 @@ describe('parseMeta and parseCursor', () => {
     expect(() => parseMeta({ ...baseMeta, archived_at: 'yesterday' })).toThrow(/meta\.archived_at/);
   });
 
+  it('takes restored_at only as a timestamp', () => {
+    expect(parseMeta({ ...baseMeta, restored_at: '2026-08-20T09:00:00Z' }).restored_at).toBe(
+      '2026-08-20T09:00:00.000Z',
+    );
+    expect(parseMeta(baseMeta)).not.toHaveProperty('restored_at');
+    expect(() => parseMeta({ ...baseMeta, restored_at: 'yesterday' })).toThrow(/meta\.restored_at/);
+  });
+
   it('allows a zero cursor but not a negative one', () => {
     expect(parseCursor({ inbox_seq: 0, updated_at: '2026-01-01T00:00:00.000Z' }).inbox_seq).toBe(0);
     expect(() => parseCursor({ inbox_seq: -1, updated_at: '2026-01-01T00:00:00.000Z' })).toThrow(

@@ -35,7 +35,13 @@ export async function archiveSession(
   return store.patchMeta({ archived_at: clock.iso() }, { touch: false });
 }
 
-/** Put an archived session back in the list. */
+/**
+ * Put an archived session back in the list.
+ *
+ * `restored_at` restarts the clocks that archive and delete old sessions (`lastTouchedMs`
+ * in rotate.ts): a session brought back by hand is one the human wants to see, and the
+ * next automatic pass must not file it away again on the strength of its age.
+ */
 export async function unarchiveSession(
   root: string,
   sessionId: string,
@@ -44,7 +50,7 @@ export async function unarchiveSession(
   const clock = options.clock ?? systemClock;
   const store = SessionStore.open(root, sessionId, { clock });
   // `undefined` erases the field: the merge keeps the key and JSON drops it (patchMeta).
-  return store.patchMeta({ archived_at: undefined }, { touch: false });
+  return store.patchMeta({ archived_at: undefined, restored_at: clock.iso() }, { touch: false });
 }
 
 /**

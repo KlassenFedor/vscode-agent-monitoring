@@ -76,6 +76,8 @@ describe('EXT-39: managing sessions from the list', () => {
     expect(harness.model.session('sess-1')?.archived).toBe(false);
     // The field is gone from the file, not left behind as an empty string.
     expect(await store.readMeta()).not.toHaveProperty('archived_at');
+    // And the restore is dated, so the automatic archive does not take it straight back.
+    expect((await store.readMeta())?.restored_at).toBeTypeOf('string');
   });
 
   it('sorts archived sessions below everything else', async () => {

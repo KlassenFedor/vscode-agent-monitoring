@@ -90,6 +90,14 @@ export interface SessionMeta extends OpenRecord {
    * nothing that reads the bus has to know the field exists.
    */
   archived_at?: string;
+  /**
+   * When the human last took this session out of the archive.
+   *
+   * Counts as a fresh start for the timers that archive and delete old sessions, and
+   * for nothing else: without it, restoring a session that had been archived for its
+   * age would only hand it back to the next pass to archive — or delete — again.
+   */
+  restored_at?: string;
 }
 
 /**
@@ -163,6 +171,7 @@ export function parseMeta(raw: unknown): SessionMeta {
     meta.transcript_path = requireString(o.transcript_path, 'meta.transcript_path', { maxLength: 4096 });
   }
   if (o.archived_at !== undefined) meta.archived_at = requireTimestamp(o.archived_at, 'meta.archived_at');
+  if (o.restored_at !== undefined) meta.restored_at = requireTimestamp(o.restored_at, 'meta.restored_at');
 
   return meta;
 }
