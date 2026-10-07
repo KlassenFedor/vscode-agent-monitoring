@@ -1,9 +1,22 @@
 import { ValidationError } from './errors.js';
 import { assertArtifactRef, assertWorkspaceLink } from './paths.js';
 
+/**
+ * `question` is legacy-read only.
+ *
+ * The `ask_user` tool that wrote these was removed; the value stays in the list so a
+ * session recorded before that still opens. `requireEnum` below is strict and
+ * `readJsonl` drops a line it cannot validate without a word, so taking the value out
+ * would make the question rows of old sessions vanish from the timeline silently.
+ */
 export const EVENT_TYPES = ['progress', 'artifact', 'question', 'status', 'error'] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
+/**
+ * `answer` is legacy-read only, for the same reason as `question` in {@link EVENT_TYPES}:
+ * it was written by the buttons on a question the agent asked, and the tool that asked
+ * them is gone. Old comments still have to render.
+ */
 export const COMMENT_KINDS = ['fyi', 'steer', 'answer', 'stop'] as const;
 export type CommentKind = (typeof COMMENT_KINDS)[number];
 
@@ -44,7 +57,13 @@ export interface AgentEvent extends OpenRecord {
    */
   links?: string[];
   next?: string;
-  /** True only for `question` events the agent is blocked on. */
+  /**
+   * Legacy-read only: set on a `question` event by the `ask_user` tool that wrote it.
+   *
+   * Kept declared rather than left to the index signature so a malformed value in an
+   * old session is still a validation error, and so the shape of a record that exists
+   * on disk is written down somewhere.
+   */
   needs_answer?: boolean;
   cost?: { tokens_in?: number; tokens_out?: number };
 }

@@ -84,14 +84,10 @@ export function activate(context: vscode.ExtensionContext): void {
       pulses,
     });
 
-    // Read per refresh, not once at activate: a setting that needs a window reload to
-    // take effect is the same bug in a smaller form, and this lookup is in-memory.
-    const onQuestion = vscode.workspace.getConfiguration('agentMonitor').get<boolean>('notifyOnQuestion');
-
     for (const session of snapshot.sessions) {
       // An archived session is the human saying they are done being interrupted by it.
       if (session.archived) continue;
-      notify(planNotification(session, previous.get(session.id), { onQuestion }), panels, model);
+      notify(planNotification(session, previous.get(session.id)), panels);
     }
     previous = new Map(snapshot.sessions.map((session) => [session.id, session]));
 
@@ -232,11 +228,9 @@ function updateStatus(status: vscode.StatusBarItem, sessions: readonly SessionVi
     return;
   }
 
-  const waiting = live.filter((session) => session.waitingQuestion).length;
   const unread = live.reduce((total, session) => total + session.unread.length, 0);
 
   const parts = [`${live.length} agent${live.length === 1 ? '' : 's'}`];
-  if (waiting > 0) parts.push(`${waiting} waiting`);
   if (unread > 0) parts.push(`${unread} undelivered`);
 
   status.text = `$(pulse) ${parts.join(' · ')}`;
@@ -244,30 +238,14 @@ function updateStatus(status: vscode.StatusBarItem, sessions: readonly SessionVi
   status.show();
 }
 
-function notify(
-  plan: ReturnType<typeof planNotification>,
-  panels: SessionPanels,
-  model: WorkspaceModel,
-): void {
+function notify(plan: ReturnType<typeof planNotification>, panels: SessionPanels): void {
   if (plan.level === 'none') return;
 
   const open = 'Open session';
-  const actions = [...plan.actions, open];
   const show = plan.level === 'error' ? vscode.window.showErrorMessage : vscode.window.showInformationMessage;
 
-  void show(plan.message, ...actions).then(async (choice) => {
-    if (choice === undefined) return;
-    if (choice !== open && plan.actions.includes(choice)) {
-      // Answering straight from the notification is the whole point of offering the
-      // agent's options here: the agent is blocked until one of them arrives.
-      await model.postComment(plan.sessionId, {
-        text: choice,
-        kind: 'answer',
-        ...(plan.event ? { replyTo: plan.event.seq } : {}),
-      });
-      return;
-    }
-    panels.show(plan.sessionId);
+  void show(plan.message, open).then((choice) => {
+    if (choice === open) panels.show(plan.sessionId);
   });
 }
 

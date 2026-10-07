@@ -73,7 +73,7 @@ describe('stdio entry point', () => {
       else await spawned.close();
     }
 
-    expect(await agent?.listTools()).toHaveLength(5);
+    expect(await agent?.listTools()).toHaveLength(4);
     // The agent waits on this every time it starts a session.
     expect(Math.min(...timings)).toBeLessThan(1000);
   }, 30_000);

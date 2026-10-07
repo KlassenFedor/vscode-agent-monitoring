@@ -43,13 +43,6 @@ export async function makeHarness(options: Partial<RuntimeOptions> = {}): Promis
     cwd: options.cwd ?? root,
     clock,
     nowMs: () => now,
-    askPollIntervalMs: 500,
-    // Virtual time moves by the full requested amount while real time barely moves,
-    // so deadline behaviour is exercised without the suite sitting in a sleep.
-    sleep: (ms: number) => {
-      now += ms;
-      return new Promise((resolve) => setTimeout(resolve, 1));
-    },
   });
 
   return {

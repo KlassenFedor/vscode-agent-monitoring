@@ -31,6 +31,12 @@ function manifest(): Contribution {
 async function writeSession(root: string): Promise<void> {
   const dir = path.join(root, '.agent-monitor', 'sessions', SESSION_ID);
   await fs.mkdir(dir, { recursive: true });
+
+  // Dated now, not with a constant. The extension prunes sessions older than
+  // `keepSessionsForDays` (14 by default) on start, and it is right to: a fixture
+  // pinned to a date in the past is a session the housekeeping pass deletes the
+  // moment it runs, which turns "the panel opens" into a race against the sweeper.
+  const started = new Date().toISOString();
   await fs.writeFile(
     path.join(dir, 'meta.json'),
     JSON.stringify({
@@ -38,8 +44,8 @@ async function writeSession(root: string): Promise<void> {
       agent: 'claude',
       cwd: root,
       status: 'working',
-      started_at: '2026-08-15T10:00:00.000Z',
-      updated_at: '2026-08-15T10:00:00.000Z',
+      started_at: started,
+      updated_at: started,
       protocol_version: 1,
       title: 'Session from the host test',
     }),
@@ -49,7 +55,7 @@ async function writeSession(root: string): Promise<void> {
     path.join(dir, 'events.jsonl'),
     `${JSON.stringify({
       seq: 1,
-      ts: '2026-08-15T10:00:01.000Z',
+      ts: started,
       type: 'progress',
       title: 'A milestone the panel should show',
     })}\n`,
@@ -102,9 +108,11 @@ describe('Agent Monitor in a real VS Code', () => {
   });
 
   it('EXT-33: every setting has a default, and something reads it', async () => {
-    // `agentMonitor.notifyOnQuestion` shipped declared and read by nobody: switching it
-    // off changed nothing. A dead setting is worse than a missing one, and the only
+    // `agentMonitor.notifyOnQuestion` once shipped declared and read by nobody: switching
+    // it off changed nothing. A dead setting is worse than a missing one, and the only
     // place that can notice is here, where the manifest and the shipped code meet.
+    // (`ask_user` and that setting were removed together; this check is what kept the
+    // two halves honest while they were here, and what will catch the next one.)
     const config = vscode.workspace.getConfiguration('agentMonitor');
     const properties = manifest().contributes.configuration.properties;
     const bundle = await fs.readFile(

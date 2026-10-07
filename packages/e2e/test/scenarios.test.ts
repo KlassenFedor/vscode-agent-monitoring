@@ -31,39 +31,35 @@ function runtimeFor(root: string, sessionId = 'sess-1'): MonitorRuntime {
     agent: 'claude',
     cwd: root,
     clock: createManualClock('2026-08-13T10:00:00.000Z', { tickMs: 1 }),
-    askPollIntervalMs: 20,
     minReportIntervalMs: 0,
   });
 }
 
-describe('E2E-03: question and answer', () => {
-  it('the human answers from the panel and the agent carries on', async () => {
+describe('E2E-03: a session recorded while ask_user existed still opens', () => {
+  it('reads the old question event and answer comment, which nothing writes any more', async () => {
     const root = await makeRoot();
-    const runtime = runtimeFor(root);
-    const model = new WorkspaceModel(root);
+    const store = SessionStore.open(root, 'sess-legacy');
+    await store.init({ agent: 'claude', cwd: root });
+    await store.appendEvent({ type: 'progress', title: 'lexer extracted' });
 
-    // The agent hits a fork in the road and blocks.
-    const pending = runtime.askUser({ question: 'Postgres or SQLite?', options: ['postgres', 'sqlite'] });
+    // The tool that produced these is gone, so the only writer left is a session
+    // recorded before it was removed — which is exactly what an upgrade finds on disk.
+    await store.appendEvent({
+      type: 'question',
+      title: 'Postgres or SQLite?',
+      needs_answer: true,
+      options: ['postgres', 'sqlite'],
+    });
+    await store.patchMeta({ status: 'blocked' });
+    await store.appendComment({ kind: 'answer', text: 'postgres', reply_to: 2 });
 
-    // The extension notices the question and shows it as waiting.
-    let snapshot = await model.refresh();
-    while (snapshot.waitingCount === 0) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      snapshot = await model.refresh();
-    }
-    expect(snapshot.sessions[0]?.waitingQuestion?.title).toBe('Postgres or SQLite?');
+    const snapshot = await new WorkspaceModel(root).refresh();
+    const session = snapshot.sessions[0];
 
-    // The human clicks one of the agent's own options.
-    const question = snapshot.sessions[0]?.waitingQuestion;
-    await model.postComment('sess-1', { text: 'postgres', kind: 'answer', replyTo: question?.seq ?? 1 });
-
-    const answer = await pending;
-    expect(answer.text).toContain('postgres');
-
-    snapshot = await model.refresh();
-    expect(snapshot.waitingCount).toBe(0);
-    expect(snapshot.sessions[0]?.status).toBe('working');
-    expect(snapshot.sessions[0]?.unread).toEqual([]);
+    expect(session?.events.map((event) => event.type)).toEqual(['progress', 'question']);
+    expect(session?.events[1]?.needs_answer).toBe(true);
+    expect(session?.comments.map((comment) => comment.kind)).toEqual(['answer']);
+    expect(session?.status).toBe('blocked');
   });
 });
 

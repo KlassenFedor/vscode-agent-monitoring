@@ -22,8 +22,8 @@ interface WebviewMessage {
 }
 
 /** The parts of an update that are replaced wholesale, as one comparable string. */
-function headerOf(update: { title: string; meta: string; question: string }): string {
-  return JSON.stringify([update.title, update.meta, update.question]);
+function headerOf(update: { title: string; meta: string }): string {
+  return JSON.stringify([update.title, update.meta]);
 }
 
 function sameKeys(previous: readonly TimelineRow[], next: readonly TimelineRow[]): boolean {
@@ -125,7 +125,6 @@ export class SessionPanels {
       type: 'update',
       title: update.title,
       meta: update.meta,
-      question: update.question,
       ...rows,
     });
   }

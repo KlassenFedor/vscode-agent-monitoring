@@ -420,73 +420,6 @@ describe('check_feedback', () => {
   });
 });
 
-describe('ask_user', () => {
-  it('MCP-09: blocks until the human answers, then resumes work', async () => {
-    const { runtime, human, store } = await makeHarness();
-
-    const pending = runtime.askUser({ question: 'Postgres or SQLite?', options: ['postgres', 'sqlite'] });
-    await human.answer('postgres, the fixtures already assume it');
-    const result = await pending;
-
-    expect(result.text).toContain('Answer to question #1');
-    expect(result.text).toContain('postgres, the fixtures already assume it');
-
-    const [question] = await store.listEvents();
-    expect(question).toMatchObject({
-      type: 'question',
-      needs_answer: true,
-      options: ['postgres', 'sqlite'],
-    });
-    expect((await store.readMeta())?.status).toBe('working');
-    expect((await store.readCursor()).inbox_seq).toBe(1);
-  });
-
-  it('marks the session blocked while it waits', async () => {
-    const { runtime, human, store } = await makeHarness();
-
-    const pending = runtime.askUser({ question: 'which one?' });
-    try {
-      await waitFor(async () => (await store.readMeta())?.status === 'blocked');
-    } finally {
-      await human.answer('the first one');
-      await pending;
-    }
-  });
-
-  it('MCP-10: gives up after the timeout and tells the agent to decide', async () => {
-    const { runtime, store } = await makeHarness();
-
-    const result = await runtime.askUser({ question: 'which one?', timeout_ms: 5_000 });
-
-    expect(result.text).toContain('No answer within 5s');
-    expect(result.text).toContain('state the assumption');
-    expect((await store.readMeta())?.status).toBe('working');
-  });
-
-  it('E2E-04: a stop comment ends the wait and leaves the session blocked', async () => {
-    const { runtime, human, store } = await makeHarness();
-
-    const pending = runtime.askUser({ question: 'which one?' });
-    await human.stop('hold on, I am rewriting the ticket');
-    const result = await pending;
-
-    expect(result.text).toContain('asked you to stop');
-    expect((await store.readMeta())?.status).toBe('blocked');
-  });
-
-  it('delivers comments that arrived before the answer', async () => {
-    const { runtime, human } = await makeHarness();
-    await human.comment('by the way, the schema changed', 'fyi');
-
-    const pending = runtime.askUser({ question: 'which one?' });
-    await human.answer('the second');
-    const result = await pending;
-
-    expect(result.text).toContain('the schema changed');
-    expect(result.text).toContain('the second');
-  });
-});
-
 describe('set_status', () => {
   it('MCP-11: updates the metadata and records a timeline entry', async () => {
     const { runtime, store } = await makeHarness();
@@ -612,17 +545,3 @@ describe('failure handling', () => {
     ]);
   });
 });
-
-/**
- * Wait for a condition the blocking tool sets on another turn of the event loop.
- * Polls rather than sleeping a fixed amount, so a slow machine does not turn this
- * into a flake.
- */
-async function waitFor(condition: () => Promise<boolean>, timeoutMs = 2000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (await condition()) return;
-    if (Date.now() > deadline) throw new Error('condition was never met');
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}

@@ -69,19 +69,20 @@ describe('WorkspaceModel', () => {
     expect(await store.unreadComments()).toHaveLength(1);
   });
 
-  it('reports a question the agent is blocked on, and clears it once answered', async () => {
+  it('PROTO-57: still reads a question event an older build wrote', async () => {
+    // Nothing appends these any more — `ask_user` was removed — but a session recorded
+    // before that is still on disk, and it has to open with its timeline intact.
     const harness = await makeExtHarness();
     const store = await harness.agent();
     await store.appendEvent({ type: 'question', title: 'Postgres or SQLite?', needs_answer: true });
     await store.patchMeta({ status: 'blocked' });
 
-    let snapshot = await harness.model.refresh();
-    expect(snapshot.waitingCount).toBe(1);
-    expect(snapshot.sessions[0]?.waitingQuestion?.title).toBe('Postgres or SQLite?');
+    const snapshot = await harness.model.refresh();
+    const session = snapshot.sessions[0];
 
-    await store.patchMeta({ status: 'working' });
-    snapshot = await harness.model.refresh();
-    expect(snapshot.waitingCount).toBe(0);
+    expect(session?.events.map((event) => event.type)).toEqual(['question']);
+    expect(session?.events[0]?.needs_answer).toBe(true);
+    expect(session?.status).toBe('blocked');
   });
 
   it('marks a session stale once it goes quiet', async () => {

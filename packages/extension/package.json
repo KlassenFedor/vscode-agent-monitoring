@@ -250,11 +250,6 @@
           "minimum": 0,
           "markdownDescription": "Move sessions that have been untouched for this many days into the Archived folder of the Sessions list. Nothing is deleted, and a session restored by hand gets a fresh start. `0` (the default) turns it off. Checked on start and then hourly; also adjustable from the gear button on the Sessions list."
         },
-        "agentMonitor.notifyOnQuestion": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a notification when an agent asks a question and is waiting for you."
-        },
         "agentMonitor.claudeConfigDirs": {
           "type": "array",
           "default": [],

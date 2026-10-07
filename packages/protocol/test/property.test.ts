@@ -24,6 +24,9 @@ function withoutNegativeZero(value: unknown): unknown {
 /** Text that may contain newlines, quotes, emoji, lone surrogates — anything a user types. */
 const text = fc.fullUnicodeString({ minLength: 1, maxLength: 60 }).filter((s) => s.trim().length > 0);
 
+// `question` and `needs_answer` are generated on purpose even though nothing writes them
+// any more: they are the legacy-read guarantee (PROTO-57), and a round trip is exactly
+// what they have to survive. Narrowing this generator would quietly drop that proof.
 const eventArb = fc.record(
   {
     type: fc.constantFrom<EventType>('progress', 'artifact', 'question', 'status', 'error'),

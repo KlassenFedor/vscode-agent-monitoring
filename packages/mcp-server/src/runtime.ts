@@ -39,19 +39,14 @@ export interface RuntimeOptions {
   /** Directory the agent is working in; recorded in the session metadata. */
   cwd?: string;
   clock?: Clock;
-  /** Real-time source for throttling and deadlines, separate from the record clock. */
+  /** Real-time source for throttling, separate from the record clock. */
   nowMs?: () => number;
-  sleep?: (ms: number) => Promise<void>;
   /** Reports closer together than this are marked as throttled. */
   minReportIntervalMs?: number;
-  askTimeoutMs?: number;
-  askPollIntervalMs?: number;
   maxArtifactBytes?: number;
 }
 
 const DEFAULT_MIN_REPORT_INTERVAL_MS = 60_000;
-const DEFAULT_ASK_TIMEOUT_MS = 15 * 60_000;
-const DEFAULT_ASK_POLL_MS = 250;
 const DEFAULT_MAX_ARTIFACT_BYTES = 1_000_000;
 
 const ARTIFACT_KINDS = ['markdown', 'diff', 'json', 'text', 'image', 'file'] as const;
@@ -70,8 +65,8 @@ const DIRECTORY_REFUSAL =
 /**
  * The behaviour behind the MCP tools, with no MCP plumbing in sight.
  *
- * Kept separate from the transport so the interesting cases — throttling, blocking
- * on a question, delivering comments — can be tested without a JSON-RPC round trip.
+ * Kept separate from the transport so the interesting cases — throttling, delivering
+ * comments — can be tested without a JSON-RPC round trip.
  */
 export class MonitorRuntime {
   readonly store: SessionStore;
@@ -82,10 +77,7 @@ export class MonitorRuntime {
   readonly #cwd: string;
   readonly #clock: Clock;
   readonly #nowMs: () => number;
-  readonly #sleep: (ms: number) => Promise<void>;
   readonly #minReportIntervalMs: number;
-  readonly #askTimeoutMs: number;
-  readonly #askPollIntervalMs: number;
   readonly #maxArtifactBytes: number;
 
   #initialized = false;
@@ -98,10 +90,7 @@ export class MonitorRuntime {
     this.#cwd = options.cwd ?? options.root;
     this.#clock = options.clock ?? systemClock;
     this.#nowMs = options.nowMs ?? (() => Date.now());
-    this.#sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.#minReportIntervalMs = options.minReportIntervalMs ?? DEFAULT_MIN_REPORT_INTERVAL_MS;
-    this.#askTimeoutMs = options.askTimeoutMs ?? DEFAULT_ASK_TIMEOUT_MS;
-    this.#askPollIntervalMs = options.askPollIntervalMs ?? DEFAULT_ASK_POLL_MS;
     this.#maxArtifactBytes = options.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES;
 
     this.store = SessionStore.open(options.root, options.sessionId, { clock: this.#clock });
@@ -250,67 +239,6 @@ export class MonitorRuntime {
       const delivered = await this.#deliverFeedback({ ...(since === undefined ? {} : { since }) });
 
       return { text: delivered === '' ? 'No new comments from the human.' : delivered };
-    });
-  }
-
-  /**
-   * Ask the human something and wait for the answer.
-   *
-   * The only blocking tool. It exists so that a real fork in the road is decided by
-   * the person rather than guessed at, and it gives up after a timeout so a human who
-   * has walked away cannot strand the session forever (TESTS.md MCP-10).
-   */
-  async askUser(rawArgs: unknown): Promise<ToolResult> {
-    return this.#guard(async () => {
-      const args = asArgs(rawArgs);
-      const question = requiredString(args, 'question', { maxLength: 1000 });
-      const options = optionalStringArray(args, 'options', { maxItems: 10 });
-      const timeoutMs =
-        optionalInt(args, 'timeout_ms', { min: 1000, max: 60 * 60_000 }) ?? this.#askTimeoutMs;
-
-      await this.ensureSession();
-      const event = await this.store.appendEvent({
-        type: 'question',
-        title: question,
-        needs_answer: true,
-        ...(options === undefined ? {} : { options }),
-      });
-      await this.store.patchMeta({ status: 'blocked' });
-
-      const deadline = this.#nowMs() + timeoutMs;
-      for (;;) {
-        const pending = await this.store.unreadComments();
-        const index = pending.findIndex((comment) => comment.kind === 'answer' || comment.kind === 'stop');
-
-        if (index >= 0) {
-          const upToAnswer = pending.slice(0, index + 1);
-          const resolution = upToAnswer[index] as Comment;
-          await this.#commit(upToAnswer);
-          await this.store.patchMeta({ status: resolution.kind === 'stop' ? 'blocked' : 'working' });
-
-          return {
-            text: paragraphs(
-              resolution.kind === 'stop'
-                ? 'The human asked you to stop and wait rather than answering.'
-                : `Answer to question #${event.seq}:`,
-              renderComments(upToAnswer),
-            ),
-          };
-        }
-
-        if (this.#nowMs() >= deadline) {
-          await this.store.patchMeta({ status: 'working' });
-          return {
-            text: paragraphs(
-              `No answer within ${Math.round(timeoutMs / 1000)}s.`,
-              'Decide yourself, and state the assumption you made in your next report so the human can correct it.',
-              await this.#deliverFeedback(),
-            ),
-          };
-        }
-
-        await this.#sleep(this.#askPollIntervalMs);
-      }
     });
   }
 

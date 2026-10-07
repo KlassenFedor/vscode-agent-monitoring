@@ -281,6 +281,15 @@ describe('EXT-10: instruction blocks in CLAUDE.md and AGENTS.md', () => {
     }
   });
 
+  it('does not send either agent after a tool the server no longer has', async () => {
+    // The block is rewritten on every setup run, but a workspace set up before the tool
+    // was removed keeps the old text until someone runs it again — so a regression here
+    // would only show up as agents calling a tool that answers "unknown tool".
+    for (const agent of ['claude', 'codex'] as const) {
+      expect(agentInstructions(agent), agent).not.toContain('ask_user');
+    }
+  });
+
   it("tells both agents to write the timeline in the human's own language", async () => {
     for (const agent of ['claude', 'codex'] as const) {
       const block = agentInstructions(agent);

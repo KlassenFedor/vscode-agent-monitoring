@@ -25,8 +25,6 @@ export interface SessionView {
   lastActivityAt: string | null;
   /** No activity for a while: the agent may be stuck, or gone. */
   stale: boolean;
-  /** Set when the agent is blocked on a question and cannot proceed without an answer. */
-  waitingQuestion: AgentEvent | null;
   status: SessionStatus;
   /** Filed away by the human: still on disk, out of the way in the list. */
   archived: boolean;
@@ -36,7 +34,6 @@ export interface WorkspaceSnapshot {
   root: string;
   sessions: SessionView[];
   unreadTotal: number;
-  waitingCount: number;
 }
 
 export interface ModelOptions {
@@ -76,7 +73,7 @@ export class WorkspaceModel {
     this.root = root;
     this.#clock = options.clock ?? systemClock;
     this.#staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
-    this.#snapshot = { root, sessions: [], unreadTotal: 0, waitingCount: 0 };
+    this.#snapshot = { root, sessions: [], unreadTotal: 0 };
   }
 
   /** Latest known state without touching the disk. */
@@ -120,7 +117,6 @@ export class WorkspaceModel {
       root: this.root,
       sessions: views,
       unreadTotal: active.reduce((total, view) => total + view.unread.length, 0),
-      waitingCount: active.filter((view) => view.waitingQuestion !== null).length,
     };
     return this.#snapshot;
   }
@@ -191,7 +187,6 @@ export class WorkspaceModel {
       unread: state.comments.filter((comment) => comment.seq > cursorSeq),
       lastActivityAt,
       stale: this.#isStale(status, lastActivityAt),
-      waitingQuestion: findWaitingQuestion(state.events, status),
       status,
       archived: typeof meta?.archived_at === 'string',
     };
@@ -202,20 +197,6 @@ export class WorkspaceModel {
     if (!lastActivityAt) return false;
     return this.#clock.now() - Date.parse(lastActivityAt) > this.#staleAfterMs;
   }
-}
-
-/**
- * A question only counts as pending while the agent is actually blocked on it.
- * Once it has been answered the agent leaves `blocked`, so the badge clears itself
- * without the UI having to track answers.
- */
-function findWaitingQuestion(events: readonly AgentEvent[], status: SessionStatus): AgentEvent | null {
-  if (status !== 'blocked') return null;
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index];
-    if (event?.type === 'question' && event.needs_answer === true) return event;
-  }
-  return null;
 }
 
 function latestTimestamp(
@@ -234,14 +215,13 @@ function latestTimestamp(
 /** Sessions that need attention first, then the most recently active. */
 function compareSessions(a: SessionView, b: SessionView): number {
   const rank = (view: SessionView): number => {
-    // Tested before everything else, and ranked below it: an archived session waiting
-    // on a question must not climb back to the top of the list it was taken out of.
-    if (view.archived) return 5;
-    if (view.waitingQuestion) return 0;
-    if (view.unread.length > 0) return 1;
-    if (view.status === 'done') return 4;
-    if (view.stale) return 3;
-    return 2;
+    // Tested before everything else, and ranked below it: an archived session with
+    // undelivered comments must not climb back to the top of the list it was taken out of.
+    if (view.archived) return 4;
+    if (view.unread.length > 0) return 0;
+    if (view.status === 'done') return 3;
+    if (view.stale) return 2;
+    return 1;
   };
 
   const byRank = rank(a) - rank(b);

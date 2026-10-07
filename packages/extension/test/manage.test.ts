@@ -31,22 +31,17 @@ describe('EXT-39: managing sessions from the list', () => {
 
   it('stops an archived session from counting as something to attend to', async () => {
     const harness = await makeExtHarness();
-    const store = await harness.agent();
-    await store.appendEvent({ type: 'question', title: 'which one?', needs_answer: true });
-    await store.patchMeta({ status: 'blocked' });
+    await harness.agent();
     await harness.human().comment('do the second one');
 
     const before = await harness.model.refresh();
-    expect(before.waitingCount).toBe(1);
     expect(before.unreadTotal).toBe(1);
 
     const after = await harness.model.setArchived('sess-1', true);
 
     // Archiving is the human saying they are done being interrupted by this session;
-    // the question and the undelivered comment are still there to read.
-    expect(after.waitingCount).toBe(0);
+    // the undelivered comment is still there to read.
     expect(after.unreadTotal).toBe(0);
-    expect(harness.model.session('sess-1')?.waitingQuestion).not.toBeNull();
     expect(harness.model.session('sess-1')?.unread).toHaveLength(1);
   });
 

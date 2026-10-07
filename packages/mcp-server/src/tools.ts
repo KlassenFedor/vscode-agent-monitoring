@@ -33,7 +33,7 @@ export interface ToolDefinition {
 export const SERVER_INSTRUCTIONS = [
   'Agent Monitor is a local progress log for the workspace you are working in.',
   '',
-  'Everything these tools record — reports, questions, artifacts — is appended to files under',
+  'Everything these tools record — reports and artifacts — is appended to files under',
   '`.agent-monitor/` in the workspace root, on this machine. The server makes no network requests;',
   'there is no remote service, account or upload behind it. "Publish" here means "write a file the',
   'human can open in their editor", and that human is the one who started this session and already',
@@ -51,7 +51,7 @@ export const SERVER_INSTRUCTIONS = [
   '',
   'If your own permission rules refuse one of these calls, that is final. Do not retry it and do not',
   'stall on it. Say what was refused, and why, in a `report_progress` call — that one moves no files —',
-  "and use `ask_user` when the human's approval is the thing you are missing.",
+  'and carry on with the parts of the task that are not blocked.',
 ].join('\n');
 
 /**
@@ -204,39 +204,6 @@ export const TOOLS: ToolDefinition[] = [
       additionalProperties: false,
     },
     run: (runtime, args) => runtime.checkFeedback(args),
-  },
-  {
-    name: 'ask_user',
-    title: 'Ask the user',
-    description: [
-      'Ask the human a question and wait for the answer. This call blocks.',
-      'Use it at a real fork in the road, where guessing wrong would waste significant work.',
-      'Do not use it for questions you can answer by reading the code.',
-      'A permission rule of your own that refuses something you believe the human wants is such a fork:',
-      'ask them here rather than retrying the call or dropping the step in silence.',
-      'If nobody answers before the timeout you are told to proceed on your own judgement.',
-      inTheirLanguage('the question and the options'),
-    ].join(' '),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        question: { type: 'string', description: 'The question, phrased so it can be answered in one line.' },
-        options: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            'Concrete choices, shown to the human as buttons. Offer them whenever the choice is closed.',
-        },
-        timeout_ms: {
-          type: 'integer',
-          minimum: 1000,
-          description: 'How long to wait before proceeding on your own. Defaults to 15 minutes.',
-        },
-      },
-      required: ['question'],
-      additionalProperties: false,
-    },
-    run: (runtime, args) => runtime.askUser(args),
   },
   {
     name: 'set_status',

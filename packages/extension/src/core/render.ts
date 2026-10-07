@@ -54,8 +54,6 @@ export function renderSession(session: SessionView, options: RenderOptions, puls
   <p class="meta" id="session-meta">${update.meta}</p>
 </header>
 
-<div id="question-slot">${update.question}</div>
-
 <main class="timeline" id="timeline">
 ${renderRows(update.rows)}
 </main>
@@ -101,7 +99,6 @@ export interface SessionUpdate {
   /** Panel title, and the heading inside it. */
   title: string;
   meta: string;
-  question: string;
   rows: TimelineRow[];
 }
 
@@ -124,7 +121,6 @@ export function renderUpdate(session: SessionView, pulse?: SessionPulse): Sessio
     ]
       .filter(Boolean)
       .join('\n    '),
-    question: session.waitingQuestion ? renderQuestion(session.waitingQuestion) : '',
     rows: buildRows(session, showPulse ? pulse : undefined),
   };
 }
@@ -203,25 +199,6 @@ export function renderRows(rows: readonly TimelineRow[]): string {
 /** The key has to survive on the node itself; that is how a patch finds its row. */
 function wrapRow(row: TimelineRow): string {
   return `<div class="row" data-key="${escapeHtml(row.key)}">${row.html}</div>`;
-}
-
-function renderQuestion(question: AgentEvent): string {
-  const options = Array.isArray(question.options)
-    ? question.options.filter((option): option is string => typeof option === 'string')
-    : [];
-
-  const buttons = options
-    .map(
-      (option) =>
-        `<button class="answer" data-answer="${escapeHtml(option)}" data-reply-to="${question.seq}">${escapeHtml(option)}</button>`,
-    )
-    .join('');
-
-  return `<section class="question">
-  <h2>The agent is waiting for you</h2>
-  <p>${escapeHtml(question.title)}</p>
-  <div class="answers">${buttons}</div>
-</section>`;
 }
 
 function renderEvent(event: AgentEvent, session: SessionView): string {
@@ -381,9 +358,6 @@ body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); 
 .status-error { color: var(--vscode-editorError-foreground); }
 .status-done { opacity: 0.6; }
 .stale { color: var(--vscode-editorWarning-foreground); }
-.question { border: 1px solid var(--vscode-editorWarning-foreground); border-radius: 4px; padding: 0.6rem 0.8rem; margin: 0.8rem 0; }
-.question h2 { font-size: 0.9rem; margin: 0 0 0.3rem; }
-.answers { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .event { border-left: 2px solid var(--vscode-panel-border); padding: 0.4rem 0 0.8rem 0.8rem; margin-bottom: 0.6rem; }
 .event-head { display: flex; gap: 0.6rem; align-items: baseline; font-size: 0.75rem; opacity: 0.7; }
 .event h3 { font-size: 0.95rem; margin: 0.2rem 0; }
@@ -450,7 +424,6 @@ window.addEventListener('message', (event) => {
   const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 40;
   document.getElementById('session-title').textContent = update.title;
   document.getElementById('session-meta').innerHTML = update.meta;
-  document.getElementById('question-slot').innerHTML = update.question;
   applyRows(update.order, update.changed);
   // Following the agent should keep following it; reading history should not jump.
   if (atBottom) window.scrollTo(0, document.body.scrollHeight);
@@ -508,8 +481,8 @@ function send(overrideKind, fallbackText) {
 }
 
 function settle(token, delivered) {
-  // The answer buttons post a comment too, without a token. Nothing the human typed is
-  // waiting on those, and emptying the box on their behalf would eat a half-written one.
+  // A comment with no token never settles anything: the pending marker only ever holds
+  // a send the composer itself started, so a message from elsewhere cannot clear one.
   if (!pending || token !== pending) return;
   pending = undefined;
   sendButton.disabled = false;
@@ -558,13 +531,6 @@ document.addEventListener('click', (event) => {
     }
   } else if (target.classList.contains('transcript')) {
     vscode.postMessage({ type: 'openTranscript', path: target.dataset.path });
-  } else if (target.classList.contains('answer')) {
-    vscode.postMessage({
-      type: 'comment',
-      text: target.dataset.answer,
-      kind: 'answer',
-      replyTo: Number(target.dataset.replyTo),
-    });
   } else if (target.classList.contains('reply')) {
     aimAt('Replying to report #' + target.dataset.replyTo, Number(target.dataset.replyTo));
   } else if (target.classList.contains('reply-after')) {

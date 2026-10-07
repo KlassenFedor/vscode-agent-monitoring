@@ -7,51 +7,20 @@ export type NotificationLevel = 'none' | 'info' | 'error';
 export interface NotificationPlan {
   level: NotificationLevel;
   message: string;
-  /** Buttons to offer; for a question these are the agent's own options. */
-  actions: string[];
   sessionId: string;
-  event?: AgentEvent;
 }
 
-const NOTHING: Omit<NotificationPlan, 'sessionId'> = { level: 'none', message: '', actions: [] };
-
-export interface NotifyOptions {
-  /**
-   * `agentMonitor.notifyOnQuestion`. Off means the badge and the panel still show the
-   * question; only the popup is withheld. Errors are not covered by it: an agent that
-   * hit a wall is not something to find out about later.
-   */
-  onQuestion?: boolean;
-}
+const NOTHING: Omit<NotificationPlan, 'sessionId'> = { level: 'none', message: '' };
 
 /**
  * Decide whether a change deserves to interrupt the human.
  *
- * Only two things do: the agent is blocked waiting for an answer, and the agent hit
- * an error. Progress reports go to the badge and the timeline — a notification per
- * milestone would train the human to dismiss them all (TESTS.md EXT-06).
+ * Only one thing does: the agent hit an error. Progress reports go to the badge and
+ * the timeline — a notification per milestone would train the human to dismiss them
+ * all (TESTS.md EXT-06).
  */
-export function planNotification(
-  next: SessionView,
-  previous?: SessionView,
-  options: NotifyOptions = {},
-): NotificationPlan {
+export function planNotification(next: SessionView, previous?: SessionView): NotificationPlan {
   const base = { sessionId: next.id };
-
-  if (
-    options.onQuestion !== false &&
-    next.waitingQuestion &&
-    previous?.waitingQuestion?.seq !== next.waitingQuestion.seq
-  ) {
-    const options = next.waitingQuestion.options;
-    return {
-      ...base,
-      level: 'info',
-      message: `${sessionLabel(next)} is waiting: ${next.waitingQuestion.title}`,
-      actions: Array.isArray(options) ? options.filter((o): o is string => typeof o === 'string') : [],
-      event: next.waitingQuestion,
-    };
-  }
 
   const error = newestErrorSince(next, previous);
   if (error) {
@@ -59,8 +28,6 @@ export function planNotification(
       ...base,
       level: 'error',
       message: `${sessionLabel(next)}: ${error.title}`,
-      actions: [],
-      event: error,
     };
   }
 

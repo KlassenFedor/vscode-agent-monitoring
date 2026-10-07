@@ -52,8 +52,9 @@ export const DEFAULT_STOP_REASON = 'The human asked you to stop and wait.';
  *
  * The badge used to print the wire name, so a human who chose "Change course" read
  * "STEER" two lines below it and had to work out that these were the same thing.
- * `answer` is named here rather than in the choice list because it is never chosen:
- * it comes from the buttons on a question the agent asked.
+ * `answer` is legacy: nothing writes it any more, and it is here because old comments
+ * still have to render. That is also why it is not in the choice list above — nobody
+ * ever chose it.
  */
 const KIND_BADGES: Record<CommentKind, string> = {
   steer: 'course change',

@@ -22,11 +22,6 @@ export class FakeHuman {
     });
   }
 
-  /** Answer the agent's blocking question. */
-  answer(text: string, replyTo?: number): Promise<Comment> {
-    return this.comment(text, 'answer', replyTo);
-  }
-
   /** Tell the agent to stop and wait. */
   stop(text = 'stop and wait'): Promise<Comment> {
     return this.comment(text, 'stop');

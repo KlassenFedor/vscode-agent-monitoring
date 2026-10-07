@@ -28,7 +28,6 @@ function view(overrides: Partial<SessionView> = {}): SessionView {
     unread: [],
     lastActivityAt: null,
     stale: false,
-    waitingQuestion: null,
     status: 'working',
     archived: false,
     ...overrides,
@@ -69,7 +68,6 @@ describe('EXT-20: a panel is written once and patched afterwards', () => {
 
     expect(timelineOf(update)).toContain('Parser split into three modules');
     expect(update.meta).toContain('working');
-    expect(update.question).toBe('');
   });
 
   it('puts those fragments behind the ids the update targets', () => {
@@ -78,7 +76,7 @@ describe('EXT-20: a panel is written once and patched afterwards', () => {
     const html = renderSession(withEvent, options);
     const update = renderUpdate(withEvent);
 
-    for (const id of ['session-title', 'session-meta', 'question-slot', 'timeline']) {
+    for (const id of ['session-title', 'session-meta', 'timeline']) {
       expect(html).toContain(`id="${id}"`);
     }
     expect(html).toContain(timelineOf(update));
@@ -90,7 +88,7 @@ describe('EXT-20: a panel is written once and patched afterwards', () => {
     // dropdown and emptied a comment the human was halfway through typing.
     const update = renderUpdate(withEvent);
 
-    for (const fragment of [update.meta, update.question, timelineOf(update)]) {
+    for (const fragment of [update.meta, timelineOf(update)]) {
       expect(fragment).not.toContain('id="comment"');
       expect(fragment).not.toContain('id="kind"');
       expect(fragment).not.toContain('id="send"');
@@ -427,17 +425,19 @@ describe('EXT-13: the webview never executes agent output', () => {
   });
 
   it('escapes attributes that carry agent-chosen values', () => {
+    // The file name is the agent's to choose and it lands inside an attribute, so a
+    // quote in it must not become a second attribute.
     const html = renderSession(
       view({
-        waitingQuestion: {
-          seq: 1,
-          ts: '2026-08-13T10:00:00.000Z',
-          type: 'question',
-          title: 'which one?',
-          needs_answer: true,
-          options: ['" onclick="alert(1)'],
-        },
-        status: 'blocked',
+        events: [
+          {
+            seq: 1,
+            ts: '2026-08-13T10:00:00.000Z',
+            type: 'artifact',
+            title: 'proposed change',
+            links: ['src/" onclick="alert(1)'],
+          },
+        ],
       }),
       options,
     );
@@ -550,30 +550,6 @@ describe('EXT-05: choosing a viewer for an artifact', () => {
 });
 
 describe('EXT-06: when to interrupt the human', () => {
-  const question = {
-    seq: 4,
-    ts: '2026-08-13T10:00:00.000Z',
-    type: 'question' as const,
-    title: 'Postgres or SQLite?',
-    needs_answer: true,
-    options: ['postgres', 'sqlite'],
-  };
-
-  it('notifies about a question, offering the agent options as buttons', () => {
-    const plan = planNotification(view({ waitingQuestion: question, status: 'blocked' }));
-
-    expect(plan.level).toBe('info');
-    expect(plan.message).toContain('Postgres or SQLite?');
-    expect(plan.actions).toEqual(['postgres', 'sqlite']);
-  });
-
-  it('does not notify twice about the same question', () => {
-    const previous = view({ waitingQuestion: question, status: 'blocked' });
-    const plan = planNotification(previous, previous);
-
-    expect(plan.level).toBe('none');
-  });
-
   it('stays silent for ordinary progress', () => {
     const events = [
       { seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'progress' as const, title: 'a milestone' },
@@ -603,43 +579,6 @@ describe('EXT-06: when to interrupt the human', () => {
     const previous = view({ events });
 
     expect(planNotification(view({ events }), previous).level).toBe('none');
-  });
-});
-
-describe('EXT-23: the question notification obeys its setting', () => {
-  const asking = view({
-    status: 'blocked',
-    events: [
-      {
-        seq: 1,
-        ts: '2026-08-13T10:00:00.000Z',
-        type: 'question',
-        title: 'Rewrite the CLI or keep it?',
-        needs_answer: true,
-      },
-    ],
-  });
-  const blocked = { ...asking, waitingQuestion: asking.events[0] ?? null };
-
-  it('withholds the popup when the human turned it off', () => {
-    expect(planNotification(blocked, undefined, { onQuestion: false }).level).toBe('none');
-  });
-
-  it('shows it by default, and when the setting is unset', () => {
-    // `agentMonitor.notifyOnQuestion` was declared in package.json and read by nobody:
-    // switching it off changed nothing at all.
-    expect(planNotification(blocked).level).toBe('info');
-    expect(planNotification(blocked, undefined, {}).level).toBe('info');
-    expect(planNotification(blocked, undefined, { onQuestion: true }).level).toBe('info');
-  });
-
-  it('still reports an error, which the setting does not cover', () => {
-    // An agent that hit a wall is not something to find out about later.
-    const failed = view({
-      events: [{ seq: 1, ts: '2026-08-13T10:00:00.000Z', type: 'error', title: 'the build will not link' }],
-    });
-
-    expect(planNotification(failed, undefined, { onQuestion: false }).level).toBe('error');
   });
 });
 
@@ -725,9 +664,10 @@ describe('EXT-31: one wording for a comment kind, not two', () => {
     expect(html).not.toContain('>fyi<');
   });
 
-  it('names the kind the human never picks', () => {
-    // `answer` reaches the timeline from the buttons on a question, so it is in no
-    // choice list and would have been the one badge left printing a wire name.
+  it('names the kinds the human never picks from that list', () => {
+    // `answer` is legacy — nothing writes it since `ask_user` was removed — but an old
+    // session still has the comment, and the badge for it is the one place the wire
+    // name is all there is to show. `stop` has its own button instead.
     expect(commentKindLabel('answer')).toBe('answer');
     expect(commentKindLabel('stop')).toBe('stop');
   });

@@ -33,7 +33,6 @@ describe('MCP surface', () => {
     const tools = await agent.listTools();
 
     expect(tools.map((tool) => tool.name).sort()).toEqual([
-      'ask_user',
       'check_feedback',
       'publish_artifact',
       'report_progress',
@@ -103,7 +102,7 @@ describe('MCP surface', () => {
     const { agent } = await connect();
 
     const tools = await agent.listTools();
-    const speaking = ['report_progress', 'publish_artifact', 'ask_user', 'set_status'];
+    const speaking = ['report_progress', 'publish_artifact', 'set_status'];
 
     for (const name of speaking) {
       const tool = tools.find((candidate) => candidate.name === name);
@@ -113,7 +112,7 @@ describe('MCP surface', () => {
 
   it('MCP-01: every advertised tool is callable', async () => {
     const { agent } = await connect();
-    expect(TOOLS).toHaveLength(5);
+    expect(TOOLS).toHaveLength(4);
 
     for (const tool of await agent.listTools()) {
       const result = await agent.tool(tool.name, {});

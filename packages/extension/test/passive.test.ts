@@ -454,7 +454,6 @@ describe('showing passive sessions next to reporting ones', () => {
     unread: [],
     lastActivityAt: '2026-08-13T10:00:00.000Z',
     stale: false,
-    waitingQuestion: null,
     status: 'working',
     archived: false,
     ...overrides,

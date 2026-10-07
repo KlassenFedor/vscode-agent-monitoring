@@ -366,7 +366,6 @@ function labelFor(
 
 function iconForSession(session: SessionView, stale: boolean): string {
   if (session.archived) return 'archive';
-  if (session.waitingQuestion) return 'question';
   if (session.status === 'done') return 'pass';
   if (session.status === 'error') return 'error';
   if (stale) return 'warning';
@@ -375,6 +374,8 @@ function iconForSession(session: SessionView, stale: boolean): string {
 
 function iconForEvent(event: AgentEvent): string {
   switch (event.type) {
+    // Legacy: nothing writes these any more (`ask_user` was removed), but a session
+    // recorded before that still has the row, and a row with an icon beats a blank one.
     case 'question':
       return 'question';
     case 'error':

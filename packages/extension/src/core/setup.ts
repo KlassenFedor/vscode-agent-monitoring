@@ -445,7 +445,7 @@ export function agentInstructions(agent: 'claude' | 'codex'): string {
   return `## Progress monitoring
 
 This workspace is monitored by Agent Monitor: a local log kept under \`.agent-monitor/\`
-in the workspace root. Reports, questions and artefacts are written to files on this
+in the workspace root. Reports and artefacts are written to files on this
 machine and read by the person who started the session; nothing is uploaded anywhere and
 the tools open no network connection. Reporting into it is asked for by this file, so it
 is part of the work rather than something extra you need permission for.
@@ -458,7 +458,6 @@ For any task longer than about ten minutes:
   your next step onwards; a \`[steer]\` comment overrides your earlier plan.
 ${pull}- Attach the artefact itself with \`publish_artifact\` when the human would want to read
   a diff, a plan or a table rather than your summary of it.
-- At a real fork in the road, call \`ask_user\` instead of guessing.
 - Call \`set_status\` with \`waiting_review\` when the work wants looking at, and \`done\`
   when you have finished.
 - Attach the smallest thing that carries the point — a diff, an excerpt, a table — not a
@@ -470,9 +469,9 @@ ${pull}- Attach the artefact itself with \`publish_artifact\` when the human wou
   shows whatever the file holds later.
 - If one of these calls is refused by your own permission or approval rules, do not retry
   it and do not go quiet: say what was refused in \`report_progress\`, which moves no files,
-  and call \`ask_user\` when it is the human's approval you are missing.
+  and carry on with the parts of the task that are not blocked.
 - Write everything the human reads in the panel — report titles, phases, summaries and
-  next steps, artefact titles and notes, questions and their options, session titles —
+  next steps, artefact titles and notes, session titles —
   in the language the human uses in their own messages and comments, not the language
   of the code or of these instructions. Use a different language only when they have
   explicitly asked for one.`;

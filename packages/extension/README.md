@@ -18,9 +18,6 @@ diff opens in your editor, not in a cramped panel.
 agent's context during its next tool call. No interruption, no repeated prompt, no waiting
 for the turn to end. Pick `stop` instead and the agent halts and waits for you.
 
-**Answers when it asks.** When the agent hits a real fork it can ask, and block until you
-press a button. The alternative is it guessing, and you finding out later.
-
 **A pulse, even with nothing set up.** Before any configuration, the sidebar reads the
 agent's own transcript and shows what it is doing right now and which files it has touched.
 That alone answers "is it stuck?".
@@ -43,6 +40,10 @@ Setup is idempotent and merges rather than overwrites. It writes:
 Everything it needs ships inside the extension. There is no `npm install`, no `npx`, and no
 separate server to keep running.
 
+Run the setup again after upgrading from a build that had the `ask_user` tool: the block in
+`CLAUDE.md` / `AGENTS.md` is rewritten in place, and an older one still tells the agent to
+call a tool the server no longer offers.
+
 ## How it works
 
 The extension and the agent talk through append-only files in your workspace, not through a
@@ -62,7 +63,6 @@ not the agent thought to look.
 | `agentMonitor.keepSessionsForDays`      | `14`     | Delete sessions untouched for this many days. `0` keeps everything.  |
 | `agentMonitor.archiveSessionsAfterDays` | `0`      | Archive sessions untouched for this many days. `0` turns it off.     |
 | `agentMonitor.sessionLabelExtras`       | `[]`     | Show agent, start time and/or last activity before session titles.   |
-| `agentMonitor.notifyOnQuestion`         | `true`   | Notify when an agent is blocked waiting for your answer.             |
 
 The gear button on the Sessions list edits the title prefix and both timers without
 leaving the sidebar; it writes the same settings. Both timers count from a session's last

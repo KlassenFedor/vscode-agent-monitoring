@@ -87,6 +87,50 @@ describe('parseComment', () => {
   });
 });
 
+/**
+ * The on-disk format is a contract, and these two records are part of it.
+ *
+ * The `ask_user` tool that wrote them was removed, so nothing produces them any more —
+ * but a session recorded before that still has to open, and `readJsonl` skips a line it
+ * cannot validate without saying so. Take either value out of its list and the old rows
+ * disappear from the timeline as if they had never been written.
+ */
+describe('PROTO-57: records the removed ask_user tool left behind still parse', () => {
+  it('reads a question event and keeps the options beside it', () => {
+    const parsed = parseEvent({
+      seq: 2,
+      ts: '2026-01-01T00:05:00.000Z',
+      type: 'question',
+      title: 'Postgres or SQLite?',
+      needs_answer: true,
+      options: ['postgres', 'sqlite'],
+    });
+
+    expect(parsed.type).toBe('question');
+    expect(parsed.needs_answer).toBe(true);
+    expect(parsed.options).toEqual(['postgres', 'sqlite']);
+  });
+
+  it('reads an answer comment', () => {
+    const parsed = parseComment({
+      seq: 1,
+      ts: '2026-01-01T00:06:00.000Z',
+      kind: 'answer',
+      text: 'postgres',
+      reply_to: 2,
+    });
+
+    expect(parsed.kind).toBe('answer');
+    expect(parsed.reply_to).toBe(2);
+  });
+
+  it('still refuses a malformed value on a legacy field', () => {
+    expect(() => parseEvent({ ...baseEvent, type: 'question', needs_answer: 'yes' })).toThrow(
+      /event\.needs_answer/,
+    );
+  });
+});
+
 describe('parseMeta and parseCursor', () => {
   const baseMeta = {
     id: 'sess-1',

@@ -25,7 +25,6 @@ function abandoned(overrides: Partial<SessionView> = {}): SessionView {
     unread: [],
     lastActivityAt: STARTED,
     stale: true,
-    waitingQuestion: null,
     status: 'working',
     archived: false,
     ...overrides,

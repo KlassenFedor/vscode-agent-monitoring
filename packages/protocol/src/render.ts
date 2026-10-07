@@ -36,6 +36,9 @@ function guidanceFor(comments: readonly Comment[]): string {
   if (kinds.has('steer')) {
     guidance.push('A [steer] comment overrides the earlier plan. Apply it from your next step onwards.');
   }
+  // Legacy: nothing writes `answer` any more, but one written before `ask_user` was
+  // removed can still be sitting undelivered in an old inbox. A bare `[answer]` token
+  // with no gloss is exactly what this function exists to prevent.
   if (kinds.has('answer')) {
     guidance.push('An [answer] comment answers a question you asked.');
   }
